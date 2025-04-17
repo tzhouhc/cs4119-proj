@@ -1,0 +1,9 @@
+[project]
+name = "cs4119-proj"
+version = "0.1.0"
+description = "CS4119 Project team 35"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "libp2p>=0.2.1",
+]
