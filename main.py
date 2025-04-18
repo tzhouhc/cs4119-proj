@@ -3,7 +3,10 @@ from lib.p2p import P2P
 
 
 def main():
-    print("Hello from cs4119-proj!")
+    c = BlockChain()
+    c.grow(b'hello ')
+    c.grow(b'world!')
+    print(c.pretty())
 
 
 if __name__ == "__main__":

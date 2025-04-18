@@ -5,15 +5,25 @@ from lib.utils import setup_logger
 
 log = setup_logger(2, name=__name__)
 
-def random_raw_block():
+
+def random_raw_block() -> Block:
     payload = random.randbytes(64)
     prev_hash = str(random.randbytes(32))
     return Block(payload, prev_hash)
 
-def random_block():
+
+def random_block() -> Block:
     b = random_raw_block()
     b.mine()
     return b
+
+
+def random_chain(length: int) -> BlockChain:
+    c = BlockChain()
+    for _ in range(length):
+        payload = random.randbytes(64)
+        c.grow(payload)
+    return c
 
 
 class TestBlock(unittest.TestCase):
@@ -118,3 +128,33 @@ class TestBlockChain(unittest.TestCase):
             payload = random.randbytes(64)
             c.grow(payload)
         self.assertTrue(c.is_valid())
+
+    def test_bool(self):
+        c = BlockChain()
+        self.assertFalse(c)
+        c.grow(b'hello')
+        self.assertTrue(c)
+
+    def test_len(self):
+        c = BlockChain()
+        for i in range(6):
+            self.assertEqual(i, len(c))
+            c.grow(b'')
+
+    def test_get_by_index(self):
+        c = random_chain(5)
+        self.assertEqual(c[3], c._chain[3])
+
+    def test_get_by_hash(self):
+        c = random_chain(5)
+        for i in range(5):
+            i_hash = c[i].hash
+            self.assertTrue(i_hash in c)
+            self.assertEqual(c[i_hash], c._chain[i])
+
+    def test_iter(self):
+        c = random_chain(5)
+        i = 0
+        for b in c:
+            self.assertEqual(c[i], b)
+            i += 1

@@ -1,6 +1,29 @@
 import logging
 import sys
 
+from typing import Any
+
+
+BLUE = "\033[0;34m"
+RED = "\033[0;31m"
+GREEN = "\033[0;32m"
+END = "\033[0m"
+
+
+def blue(line: Any) -> str:
+    """Render current input as blue via ANSI code"""
+    return f"{BLUE}{line}{END}"
+
+
+def red(line: Any) -> str:
+    """Render current input as red via ANSI code"""
+    return f"{RED}{line}{END}"
+
+
+def green(line: Any) -> str:
+    """Render current input as green via ANSI code"""
+    return f"{GREEN}{line}{END}"
+
 
 def setup_file_logger(suffix: str, name=None) -> logging.Logger:
     """
