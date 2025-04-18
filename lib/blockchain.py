@@ -6,7 +6,7 @@ from lib.utils import setup_logger
 NONCE_LENGTH = 64
 DIFFICULTY = 2
 
-log = setup_logger(__name__, 2)
+log = setup_logger(2, name=__name__)
 
 
 def expected_hash_prefix():
@@ -14,6 +14,8 @@ def expected_hash_prefix():
 
 
 class Block:
+    """A Block in the blockchain. call `mine` to finalize."""
+
     done: bool = False
     payload: bytes = b''
     prev_hash: str = ''
@@ -29,12 +31,14 @@ class Block:
         self.nonce = 0
 
     def get_hash(self) -> str:
+        """Get hash based on previous hash, payload and create time."""
         raw = self.prev_hash.encode() + self.payload + \
             self.timestamp.encode()
         raw += self.nonce.to_bytes(NONCE_LENGTH)
         return sha256(raw).hexdigest()
 
     def mine(self) -> None:
+        """Mine for required difficulty and finalize block."""
         if self.done:
             return
         while not self.valid():
@@ -43,12 +47,14 @@ class Block:
         self.done = True
 
     def __setattr__(self, key, value) -> None:
+        """Prevent modification after done."""
         if not self.done:
             super().__setattr__(key, value)
         else:
             raise AttributeError(f"Can't modify read-only attribute {key}")
 
     def valid(self) -> bool:
+        """Hash matches required difficulty and regenerated hash."""
         if not self.hash.startswith(expected_hash_prefix()):
             return False
         return self.get_hash() == self.hash
@@ -59,5 +65,6 @@ class BlockChain:
         self.chain = []
 
     def append(self, block: Block) -> None:
+        """Add a new block to the chain."""
         # TODO: actually do checks
         self.chain += [block]
