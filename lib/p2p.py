@@ -17,16 +17,18 @@ class P2P:
     def __init__(self, ip: str, port: int) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.connect((ip, port))
+        self.addr = (ip, port)
         self.tracker = None
         self.peers: list[Addr] = []
         self.outbound: list[Packet] = []
-        self.inbound: list[bytes] = []
+        self.inbound: list[Packet] = []
         self.sender_thread: Thread = Thread(target=self.sender_handler, daemon=True)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler, daemon=True)
         self.done = False
 
     def start(self):
+        self.sock.bind(self.addr)
+        self.sock.listen(1)
         self.sender_thread.start()
         self.receiver_thread.start()
 
@@ -39,8 +41,10 @@ class P2P:
 
     def receiver_handler(self):
         while not self.done:
-            result = self.sock.recv(1024)
-            self.inbound += [result]
+            conn, addr = self.sock.accept()
+            result = conn.recv(1024)
+            self.inbound += [(result, addr)]
+            conn.close()
             sleep(0.1)
 
     def pack(self, data: dict) -> bytes:
