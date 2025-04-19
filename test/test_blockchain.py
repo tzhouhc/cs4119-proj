@@ -1,5 +1,6 @@
 import random
 import unittest
+
 from lib.blockchain import Block, BlockChain, expected_hash_prefix
 from lib.utils import setup_logger
 
@@ -29,32 +30,32 @@ def random_chain(length: int) -> BlockChain:
 class TestBlock(unittest.TestCase):
 
     def test_creating(self):
-        _ = Block(b'', '')
+        _ = Block(b"", "")
 
     def test_mining_has_expected_prefix(self):
-        b = Block(b'', '')
+        b = Block(b"", "")
         b.mine()
         self.assertTrue(b.done)
         self.assertTrue(b.hash.startswith(expected_hash_prefix()))
 
     def test_access_after_mining_ok(self):
-        b = Block(b'', '')
-        b.payload += b'1'
+        b = Block(b"", "")
+        b.payload += b"1"
         b.mine()
-        self.assertEqual(b.payload, b'1')
+        self.assertEqual(b.payload, b"1")
 
     def test_modifying_before_mining_ok(self):
-        b = Block(b'', '')
-        b.payload += b'1'
+        b = Block(b"", "")
+        b.payload += b"1"
         b.mine()
         self.assertTrue(b.done)
         self.assertTrue(b.hash.startswith(expected_hash_prefix()))
 
     def test_modifying_after_mining_fail(self):
-        b = Block(b'', '')
+        b = Block(b"", "")
         b.mine()
         with self.assertRaises(AttributeError):
-            b.payload += b'1'
+            b.payload += b"1"
 
     def test_validate(self):
         for _ in range(100):
@@ -74,7 +75,7 @@ class TestBlockChain(unittest.TestCase):
 
     def test_initializing(self):
         c = BlockChain()
-        b = Block(b'', '')
+        b = Block(b"", "")
         b.mine()
         c.append(b)
 
@@ -115,12 +116,12 @@ class TestBlockChain(unittest.TestCase):
 
     def test_grow_first_ok(self):
         c = BlockChain()
-        c.grow(b'hello')
+        c.grow(b"hello")
 
     def test_grow_second_ok(self):
         c = BlockChain()
-        c.grow(b'hello')
-        c.grow(b'world')
+        c.grow(b"hello")
+        c.grow(b"world")
 
     def test_check_validity(self):
         c = BlockChain()
@@ -132,14 +133,14 @@ class TestBlockChain(unittest.TestCase):
     def test_bool(self):
         c = BlockChain()
         self.assertFalse(c)
-        c.grow(b'hello')
+        c.grow(b"hello")
         self.assertTrue(c)
 
     def test_len(self):
         c = BlockChain()
         for i in range(6):
             self.assertEqual(i, len(c))
-            c.grow(b'')
+            c.grow(b"")
 
     def test_get_by_index(self):
         c = random_chain(5)

@@ -1,8 +1,6 @@
 import logging
 import sys
-
 from typing import Any
-
 
 BLUE = "\033[0;34m"
 RED = "\033[0;31m"
@@ -38,7 +36,7 @@ def setup_file_logger(suffix: str, name=None) -> logging.Logger:
     logger.setLevel(logging.INFO)
 
     handler = logging.FileHandler(f"log_{suffix}.txt", mode="w")
-    formatter = logging.Formatter('%(message)s')
+    formatter = logging.Formatter("%(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.propagate = False
@@ -68,8 +66,7 @@ def setup_logger(verbosity: int, name=None) -> logging.Logger:
     ch = logging.StreamHandler(sys.stderr)
     ch.setLevel(level)
     # Create a formatter
-    formatter = logging.Formatter(
-        '%(name)s@%(levelname)s: %(message)s')
+    formatter = logging.Formatter("%(name)s@%(levelname)s: %(message)s")
     # Add formatter to ch
     ch.setFormatter(formatter)
     # Add ch to logger

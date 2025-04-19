@@ -1,8 +1,9 @@
-import socket
 import json
-from lib.utils import setup_logger
+import socket
 from threading import Thread
 from time import sleep
+
+from lib.utils import setup_logger
 
 log = setup_logger(2, name=__name__)
 
@@ -21,10 +22,8 @@ class P2P:
         self.peers: list[Addr] = []
         self.outbound: list[Packet] = []
         self.inbound: list[bytes] = []
-        self.sender_thread: Thread = Thread(
-            target=self.sender_handler, daemon=True)
-        self.receiver_thread: Thread = Thread(
-            target=self.receiver_handler, daemon=True)
+        self.sender_thread: Thread = Thread(target=self.sender_handler, daemon=True)
+        self.receiver_thread: Thread = Thread(target=self.receiver_handler, daemon=True)
         self.done = False
 
     def start(self):
@@ -65,6 +64,7 @@ class Tracker(P2P):
     list.
     On receiving DROP notice, remove peer from list.
     """
+
     ...
 
 
@@ -75,4 +75,5 @@ class Peer(P2P):
     On JOIN, notify tracker and GET list of peers.
     On DROP, notify tracker.
     """
+
     ...
