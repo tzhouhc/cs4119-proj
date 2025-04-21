@@ -7,7 +7,7 @@ from lib.utils import blue, green, setup_logger
 NONCE_LENGTH = 64
 DIFFICULTY = 2
 
-log = setup_logger(2, name=__name__)
+log = setup_logger(1, name=__name__)
 
 
 def expected_hash_prefix():
@@ -144,14 +144,18 @@ class BlockChain:
 
     def is_valid(self) -> bool:
         """validate full chain."""
+        if self:
+            if not self[0].is_valid():
+                log.debug("Chain root invalid.")
+                return False
         for i in range(len(self) - 1):
             prev = self[i]
             cur = self[i + 1]
-            if cur.is_valid():
-                log.info(f"Chain entry {i} invalid.")
+            if not cur.is_valid():
+                log.debug(f"Chain entry {i+1} invalid.")
                 return False
             if prev.hash != cur.prev_hash:
-                log.info(f"Chain entry {i} and {i+1} have mismatching hash.")
+                log.debug(f"Chain entry {i} and {i+1} have mismatching hash.")
                 return False
         return True
 
@@ -174,11 +178,15 @@ class BlockChain:
         using last Block's hash as prev_hash.
         """
         if not self._chain:
-            self._chain += [Block(payload, "")]
+            new = Block(payload, "")
+            new.mine()
+            self._chain += [new]
         else:
             tail = self.tail()
             assert tail is not None
-            self._chain += [Block(payload, tail.hash)]
+            new = Block(payload, tail.hash)
+            new.mine()
+            self._chain += [new]
 
     def pretty(self) -> str:
         """Pretty print self."""

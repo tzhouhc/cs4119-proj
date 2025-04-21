@@ -4,7 +4,7 @@ import unittest
 from lib.blockchain import Block, BlockChain, expected_hash_prefix
 from lib.utils import setup_logger
 
-log = setup_logger(2, name=__name__)
+log = setup_logger(1, name=__name__)
 
 
 def random_raw_block() -> Block:
@@ -123,12 +123,19 @@ class TestBlockChain(unittest.TestCase):
         c.grow(b"hello")
         c.grow(b"world")
 
-    def test_check_validity(self):
+    def test_check_grown_validity_ok(self):
         c = BlockChain()
         for _ in range(10):
             payload = random.randbytes(64)
             c.grow(payload)
         self.assertTrue(c.is_valid())
+
+    def test_check_force_append_validity_fail(self):
+        c = BlockChain()
+        for _ in range(10):
+            payload = random.randbytes(64)
+            c._chain.append(Block(payload, ""))
+        self.assertFalse(c.is_valid())
 
     def test_bool(self):
         c = BlockChain()
