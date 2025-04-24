@@ -3,11 +3,10 @@ import socket
 from threading import Thread
 from time import sleep
 
-from lib.utils import setup_logger
+from lib.utils import Addr, setup_logger
 
 log = setup_logger(1, name=__name__)
 
-Addr = tuple[str, int]
 Packet = tuple[bytes, Addr]
 
 

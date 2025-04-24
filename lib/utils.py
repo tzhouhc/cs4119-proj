@@ -8,6 +8,9 @@ GREEN = "\033[0;32m"
 END = "\033[0m"
 
 
+Addr = tuple[str, int]
+
+
 def blue(line: Any) -> str:
     """Render current input as blue via ANSI code"""
     return f"{BLUE}{line}{END}"
