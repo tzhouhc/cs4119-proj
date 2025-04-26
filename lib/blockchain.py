@@ -32,8 +32,10 @@ class Block:
         self.nonce = 0
 
     def __setattr__(self, key, value) -> None:
-        """Prevent modification after done."""
+        """Prevent modification after done EXCEPT done & self_mining."""
         if not self.done:
+            super().__setattr__(key, value)
+        elif key == "stop_mining":
             super().__setattr__(key, value)
         else:
             raise AttributeError(f"Can't modify read-only attribute {key}")
@@ -53,7 +55,12 @@ class Block:
         """Mine for required difficulty and finalize block."""
         if self.done:
             return
+        self.stop_mining = False
         while not self.is_valid():
+            if self.stop_mining:
+                log.debug("Mining interrupted by stop_mining flag.")
+                self.stop_mining = False
+                return
             self.nonce += 1
             self.hash = self.get_hash()
         self.done = True
