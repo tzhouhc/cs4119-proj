@@ -1,3 +1,4 @@
+from base64 import b64decode, b64encode
 from hashlib import sha256
 from time import time
 from typing import Any, Iterator
@@ -45,6 +46,19 @@ class Block:
         hash = self.hash[:8]
         return f"Block[{hash}, {content}]"
 
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Block):
+            return False
+        return all(
+            [
+                self.timestamp == other.timestamp,
+                self.hash == other.hash,
+                self.prev_hash == other.prev_hash,
+                self.payload == other.payload,
+                self.nonce == other.nonce,
+            ]
+        )
+
     def get_hash(self) -> str:
         """Get hash based on previous hash, payload and create time."""
         raw = self.prev_hash.encode() + self.payload + self.timestamp.encode()
@@ -79,6 +93,27 @@ class Block:
         content = self.payload if len(self.payload) <= 20 else self.payload[:8]
         hash = self.hash[:8]
         return f"Block[{blue(hash)}, {green(content)}]"
+
+    def as_dict(self) -> dict[str, Any]:
+        """Creates dict with primitive types to allow json serialization."""
+        return {
+            "timestamp": self.timestamp,
+            "payload": b64encode(self.payload).decode(),
+            "hash": self.hash,
+            "prev_hash": self.prev_hash,
+            "nonce": self.nonce,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]):
+        """Parse serialized data dict to recreate block."""
+        org_payload = b64decode(data["payload"].encode())
+        ret = cls(org_payload, data["prev_hash"])
+        ret.timestamp = data["timestamp"]
+        ret.hash = data["hash"]
+        ret.nonce = data["nonce"]
+        ret.done = True
+        return ret
 
 
 class BlockChain:
@@ -127,6 +162,14 @@ class BlockChain:
         """Support `for block in c`."""
         for block in self._chain:
             yield block
+
+    def __eq__(self, other: Any) -> bool:
+        """Check equality."""
+        if not isinstance(other, BlockChain):
+            return False
+        if len(self) != len(other):
+            return False
+        return all([self[i] == other[i] for i in range(len(self))])
 
     # ----- end of magic methods ----- #
 
@@ -202,3 +245,12 @@ class BlockChain:
     def pretty(self) -> str:
         """Pretty print self."""
         return "\n".join([b.pretty() for b in self._chain])
+
+    def as_list(self) -> list[dict]:
+        return [b.as_dict() for b in self]
+
+    @classmethod
+    def from_list(cls, lst: list[dict]):
+        c = cls()
+        c._chain = [Block.from_dict(d) for d in lst]
+        return c

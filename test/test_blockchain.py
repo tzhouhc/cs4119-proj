@@ -1,3 +1,4 @@
+import json
 import random
 import unittest
 from threading import Thread
@@ -91,6 +92,61 @@ class TestBlock(unittest.TestCase):
         # assertions
         self.assertFalse(b.done)
         self.assertFalse(b.is_valid())
+
+    def test_serialize(self):
+        """Block can serialize to something json dumpable."""
+        b = Block(b"asdf", "")
+        b.mine()
+        json.dumps(b.as_dict())
+
+    def test_deserialize(self):
+        """Block can be restored from json serialized data."""
+        b = Block(b"asdf", "")
+        b.mine()
+        s = json.dumps(b.as_dict())
+        b2 = Block.from_dict(json.loads(s))
+        self.assertTrue(b2.is_valid())
+        self.assertEqual(b, b2)
+
+    def test_malformed_deserialize(self):
+        """
+        Block cannot be restored from json serialized data if tampered with.
+        """
+        b = random_block()
+        d = b.as_dict()
+        d["nonce"] -= 1
+        s = json.dumps(d)
+        b2 = Block.from_dict(json.loads(s))
+        self.assertNotEqual(b, b2)
+        self.assertFalse(b2.is_valid())
+
+    def test_malformed_deserialize_2(self):
+        b = random_block()
+        d = b.as_dict()
+        d["prev_hash"] = "bad_hash"
+        s = json.dumps(d)
+        b2 = Block.from_dict(json.loads(s))
+        self.assertNotEqual(b, b2)
+        self.assertFalse(b2.is_valid())
+
+    def test_malformed_deserialize_3(self):
+        b = random_block()
+        d = b.as_dict()
+        d["payload"] = "cXdlcg=="  # b"qwer"
+        s = json.dumps(d)
+        b2 = Block.from_dict(json.loads(s))
+        self.assertNotEqual(b, b2)
+        self.assertFalse(b2.is_valid())
+
+    def test_malformed_deserialize_4(self):
+        b = random_block()
+        d = b.as_dict()
+        d["timestamp"] = "1745703772.718412"  # arbitrary valid timestamp
+        s = json.dumps(d)
+        b2 = Block.from_dict(json.loads(s))
+        self.assertNotEqual(b, b2)
+        self.assertFalse(b2.is_valid())
+
 
 class TestBlockChain(unittest.TestCase):
 
@@ -190,3 +246,30 @@ class TestBlockChain(unittest.TestCase):
         for b in c:
             self.assertEqual(c[i], b)
             i += 1
+
+    def test_serialize(self):
+        """BlockChain can serialize to something json dumpable."""
+        c = random_chain(5)
+        json.dumps(c.as_list())
+
+    def test_deserialize(self):
+        """BlockChain can be restored from json serialized data."""
+        c = random_chain(5)
+        s = json.dumps(c.as_list())
+        c2 = BlockChain.from_list(json.loads(s))
+        self.assertEqual(c, c2)
+
+    def test_malformed_deserialize(self):
+        """
+        BlockChain cannot be restored from json serialized data if tampered
+        with.
+        """
+        c = random_chain(5)
+        b = random_block()
+        lst = c.as_list()
+        # swap out content in the chain with bad block
+        lst[3] = b.as_dict()
+        s = json.dumps(lst)
+        c2 = BlockChain.from_list(json.loads(s))
+        self.assertNotEqual(c, c2)
+        self.assertFalse(c2.is_valid())
