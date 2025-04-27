@@ -6,6 +6,8 @@ from time import sleep
 from lib.blockchain import Block, BlockChain, expected_hash_prefix
 from lib.utils import setup_logger
 
+from unittest.mock import patch
+
 log = setup_logger(1, name=__name__)
 
 
@@ -72,23 +74,20 @@ class TestBlock(unittest.TestCase):
     def test_mining_can_be_stopped(self):
         """Test whether changing stop_mining can stop mine()."""
         b = Block(b"", "") # block
-        # helper: never find valid hash
-        og_is_valid = b.is_valid
-        def fake_is_valid():
-            return False
-        b.is_valid = fake_is_valid
+
         # helper: change bool after mine() starts 
         def delayed_stop():
             sleep(0.01)
             b.stop_mining = True
-        # start thread
-        interrupt = Thread(target=delayed_stop)
-        interrupt.start()
-        # call mine
-        b.mine()
-        interrupt.join()
-        # restore is_valid()
-        b.is_valid = og_is_valid
+
+        with patch.object(Block, "is_valid", return_value=False):
+            # start thread
+            interrupt = Thread(target=delayed_stop)
+            interrupt.start()
+            # call mine
+            b.mine()
+            interrupt.join()
+
         # assertions
         self.assertFalse(b.done)
         self.assertFalse(b.is_valid())
