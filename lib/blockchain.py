@@ -50,16 +50,20 @@ class Block:
         raw = self.prev_hash.encode() + self.payload + self.timestamp.encode()
         raw += self.nonce.to_bytes(NONCE_LENGTH)
         return sha256(raw).hexdigest()
+    
+    def set_stop_mining(self, value: bool) -> None:
+        """Safely set  stop_mining flag."""
+        self.stop_mining = value
 
     def mine(self) -> None:
         """Mine for required difficulty and finalize block."""
         if self.done:
             return
-        self.stop_mining = False
+        self.set_stop_mining(False)
         while not self.is_valid():
             if self.stop_mining:
                 log.debug("Mining interrupted by stop_mining flag.")
-                self.stop_mining = False
+                self.set_stop_mining(False)
                 return
             self.nonce += 1
             self.hash = self.get_hash()
