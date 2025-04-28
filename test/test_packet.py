@@ -31,6 +31,20 @@ class TestDataPacketCommon(unittest.TestCase):
         # different time stamp
         self.assertNotEqual(p1, p2)
 
+    def test_getattr(self):
+        p1 = DataPacket()
+        p1.data["type"] = "hello"
+        self.assertEqual(p1.type, "hello")
+
+    def test_getattr_super(self):
+        p1 = DataPacket()
+        self.assertTrue(p1.__class__)
+
+    def test_getattr_super_err(self):
+        p1 = DataPacket()
+        with self.assertRaises(AttributeError):
+            _ = p1.nosuchattr
+
 
 class TestAnnouncementPacket(unittest.TestCase):
 
@@ -89,6 +103,11 @@ class TestDeserialize(unittest.TestCase):
         with self.assertRaises(ValueError):
             DataPacket.from_dict(bad)
 
+    def test_deserialize_null(self):
+        bad = {"type": 0}
+        with self.assertRaises(ValueError):
+            DataPacket.from_dict(bad)
+
     def test_deserialize_ann_req(self):
         c = BlockChain()
         c.grow(b"hello")
@@ -96,8 +115,8 @@ class TestDeserialize(unittest.TestCase):
         ser = p.as_dict()
         deser = DataPacket.from_dict(ser)
         self.assertEqual(p, deser)
-        self.assertEqual(c, BlockChain.from_list(deser["chain"]))
-        self.assertEqual(("localhost", 1000), deser["tracker"])
+        self.assertEqual(c, BlockChain.from_list(deser.chain))
+        self.assertEqual(("localhost", 1000), deser.tracker)
 
     def test_deserialize_peer_list_req(self):
         p = PeerListRequestPacket()
@@ -112,15 +131,15 @@ class TestDeserialize(unittest.TestCase):
         ser = p.as_dict()
         deser = DataPacket.from_dict(ser)
         self.assertEqual(p, deser)
-        self.assertEqual(tr, deser["tracker"])
-        self.assertEqual(pl, deser["peers"])
+        self.assertEqual(tr, deser.tracker)
+        self.assertEqual(pl, deser.peers)
 
     def test_deserialize_redirect(self):
         p = RedirectPacket(("localhost", 1000))
         ser = p.as_dict()
         deser = DataPacket.from_dict(ser)
         self.assertEqual(p, deser)
-        self.assertEqual(("localhost", 1000), deser["tracker"])
+        self.assertEqual(("localhost", 1000), deser.tracker)
 
     def test_deserialize_block_update(self):
         c = BlockChain()
@@ -129,4 +148,4 @@ class TestDeserialize(unittest.TestCase):
         ser = p.as_dict()
         deser = DataPacket.from_dict(ser)
         self.assertEqual(p, deser)
-        self.assertEqual(c, BlockChain.from_list(deser["chain"]))
+        self.assertEqual(c, BlockChain.from_list(deser.chain))

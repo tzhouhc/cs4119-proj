@@ -38,6 +38,12 @@ class DataPacket:
         """Support c[i]."""
         return self.data[key]
 
+    def __getattr__(self, key: str) -> Any:
+        """Support c.key direct access."""
+        if key in self.data:
+            return self.data[key]
+        return super().__getattr__(key)
+
     def as_dict(self):
         return self.data
 
