@@ -1,3 +1,4 @@
+import json
 from enum import IntEnum
 from time import time
 from typing import Any
@@ -44,8 +45,11 @@ class DataPacket:
             return self.data[key]
         raise AttributeError(f"Attribute {key} not found.")
 
-    def as_dict(self):
+    def as_dict(self) -> dict:
         return self.data
+
+    def as_bytes(self) -> bytes:
+        return json.dumps(self.data).encode()
 
     @classmethod
     def from_dict(cls, data: dict) -> "DataPacket":
