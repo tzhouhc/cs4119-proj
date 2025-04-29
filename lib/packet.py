@@ -42,7 +42,7 @@ class DataPacket:
         """Support c.key direct access."""
         if key in self.data:
             return self.data[key]
-        return super().__getattr__(key)
+        raise AttributeError(f"Attribute {key} not found.")
 
     def as_dict(self):
         return self.data
