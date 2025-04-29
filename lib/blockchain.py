@@ -64,7 +64,7 @@ class Block:
         raw = self.prev_hash.encode() + self.payload + self.timestamp.encode()
         raw += self.nonce.to_bytes(NONCE_LENGTH)
         return sha256(raw).hexdigest()
-    
+
     def set_stop_mining(self, value: bool) -> None:
         """Safely set  stop_mining flag."""
         self.stop_mining = value
@@ -170,6 +170,12 @@ class BlockChain:
         if len(self) != len(other):
             return False
         return all([self[i] == other[i] for i in range(len(self))])
+
+    def __lt__(self, other: Any) -> bool:
+        if not isinstance(other, BlockChain):
+            msg = f"Cannot compare blockchain with {other.__class__}"
+            raise TypeError(msg)
+        return len(self) < len(other)
 
     # ----- end of magic methods ----- #
 
