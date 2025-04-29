@@ -18,6 +18,9 @@ log = setup_logger(1, name=__name__)
 
 Packet = tuple[bytes, Addr]
 
+PEER = 0
+TRACKER = 1
+
 
 class P2P:
     """Generalized P2P actor class."""
@@ -151,6 +154,9 @@ class P2P:
     def run(self):
         raise NotImplementedError()
 
+    def stop(self):
+        raise NotImplementedError()
+
 
 class Tracker(P2P):
     """
@@ -160,6 +166,9 @@ class Tracker(P2P):
     list.
     On receiving DROP notice, remove peer from list.
     """
+
+    def state_test(self) -> int:
+        return 1
 
 
 class Peer(P2P):
@@ -278,6 +287,29 @@ class Peer(P2P):
             self.send_packet(pkt, self.tracker)
             # reset
             self.block = None
+
+    def state_test(self) -> int:
+        return 2
+
+
+class TrackerPeer(Tracker, Peer):
+
+    def __init__(self, ip: str, port: int, state=PEER):
+        P2P.__init__(self, ip, port)
+        self.state = state
+
+    def become_peer(self):
+        self.state = PEER
+
+    def become_tracker(self):
+        self.state = TRACKER
+
+    # Sample inheritance
+    def state_test(self) -> int:
+        if self.state == PEER:
+            return Peer.state_test(self)
+        else:
+            return Tracker.state_test(self)
 
 
 if __name__ == "__main__":
