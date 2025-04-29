@@ -27,6 +27,7 @@ class P2P:
         self.done = False
         self.lock = Lock()
         self.buffer = b""
+        self.decoder = json.JSONDecoder()
 
     def start(self):
         self.sock.bind(self.addr)
@@ -47,6 +48,7 @@ class P2P:
                     temp_sock.connect(dest)
                     temp_sock.sendall(payload)
                     temp_sock.close()
+                    log.info(f"Sent packet to {dest}")
                 except Exception as e:
                     log.error(f"Failed to send packet to {dest}: {e}")
             sleep(0.1)
@@ -85,13 +87,13 @@ class P2P:
                 while True:
                     try:
                         decoded = buffer.decode()
-                        message, idx = json.JSONDecoder().raw_decode(decoded)
+                        message, idx = self.decoder.raw_decode(decoded)
                         remaining = decoded[idx:].lstrip()
                         buffer = remaining.encode()
-
+                        packet = DataPacket.from_dict(message)
                         with self.lock:
                             self.inbound.append((json.dumps(message).encode(), addr))
-                       
+                        log.info(f"Received packet from {addr}: {packet.data}")
                         print(f"Received complete JSON from {addr}")
                     except json.JSONDecodeError:
                         break
@@ -130,6 +132,7 @@ class P2P:
         """
         with self.lock:
             self.outbound.append((payload, dest))
+        log.info(f"Queued packet to {dest}: {packet.data}")
 
     def close(self):
         self.done = True
