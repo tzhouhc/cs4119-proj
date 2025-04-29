@@ -12,6 +12,7 @@ from lib.packet import (
     PeerListRequestPacket,
     RedirectPacket
 )
+from lib.blockchain import BlockChain
 from lib.utils import Addr, setup_logger
 
 log = setup_logger(1, name=__name__)
@@ -30,15 +31,19 @@ class P2P:
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.addr = (ip, port)
         self.tracker = None
-        self.peers: list[Addr] = []
+        self.peers: set[Addr] = set()
         self.outbound: list[Packet] = []
         self.inbound: list[Packet] = []
         self.sender_thread: Thread = Thread(target=self.sender_handler, daemon=True)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler, daemon=True)
+        self.chain = None
         self.done = False
         self.lock = Lock()
         self.buffer = b""
         self.decoder = json.JSONDecoder()
+
+    def get_peers(self) -> list[Addr]:
+        return list(self.peers)
 
     def start(self):
         self.sock.bind(self.addr)
@@ -169,6 +174,9 @@ class P2P:
         # method does not block.
         self.sock.close()
 
+    def send_packet(self, pkt: DataPacket, dst):
+        self.outbound.append((pkt.as_bytes(), dst))
+
     def run(self):
         raise NotImplementedError()
 
@@ -189,6 +197,69 @@ class Tracker(P2P):
         """Test method, returns current state representation int."""
         return TRACKER
 
+    def __init__(self, ip, port):
+        super().__init__(ip, port)
+        self.peers = set()
+        self.auto_respond_thread: Thread = Thread(
+            target=self.responder_thread, daemon=True
+        )
+
+    def announce(self, pkt: DataPacket) -> None:
+        """
+        Send packet to all peers.
+        """
+        for peer in self.peers:
+            self.send_packet(pkt, peer)
+
+    def respond(self, msg: dict, src: Addr) -> None:
+        """
+        Actual responding method that takes data dict, interpret as a
+        DataPacket, then appropriately validate and respond to it, performing
+        any state changes in the process as necessary.
+        """
+        pkt = None
+        try:
+            pkt = DataPacket.from_dict(msg)
+        except ValueError as e:
+            log.warning(f"Failed to interpret packet: {e}")
+        # valid packet, add peer to list
+        self.peers.add(src)
+        if isinstance(pkt, PeerListRequestPacket):
+            # no validation necessary -- just respond
+            resp = PeerListPacket(self.addr, self.get_peers())
+            self.send_packet(resp, src)
+        elif isinstance(pkt, BlockUpdatePacket):
+            # validate block
+            c: BlockChain = pkt.chain
+            cur_c = self.chain
+            if not c.is_valid():
+                return
+            if not self.chain or self.chain < c:
+                self.chain = c
+            if self.chain != cur_c:
+                # promote sender of updated chain as new tracker
+                resp = AnnouncementPacket(self.chain, src)
+                self.announce(resp)
+                # TODO: state transition to start operating as Peer
+        else:
+            # invalid pkt type for tracker
+            # TODO: consider if we might still want to do something for invalid
+            # packets.
+            return
+
+    def responder_thread(self):
+        """
+        Responder thread, which handles repeatedly receiving packets and
+        handling them based on type.
+        """
+        while not self.done:
+            if self.inbound:
+                msg, src = self.inbound.pop(0)
+                data = json.loads(msg.decode())
+                self.respond(data, src)
+            else:
+                sleep(0.1)
+
 
 class Peer(P2P):
     """
@@ -207,7 +278,7 @@ class Peer(P2P):
 
     def start(self):
         """
-        Start active components of Peer class, including two threads. 
+        Start active components of Peer class, including two threads.
         """
         super().start()
         self.auto_respond_thread.start()
@@ -229,7 +300,7 @@ class Peer(P2P):
             pkt = DataPacket.from_dict(msg)
         except ValueError as e:
             log.warning(f"Failed to interpret packet: {e}")
-        # valid packet, respond 
+        # valid packet, respond
         if isinstance(pkt, PeerListRequestPacket) or isinstance(pkt, BlockUpdatePacket):
             # send redirect
             pkt = RedirectPacket(self.tracker)
@@ -251,7 +322,7 @@ class Peer(P2P):
             # check if valid
             if not new_chain.is_valid(): #invalid chain
                 return
-            else:  
+            else:
                 # stop current mining process
                 if self.block:
                     self.block.set_stop_mining(True)
@@ -273,11 +344,11 @@ class Peer(P2P):
                 sleep(0.1)
 
 
-    def miner_thread(self): 
+    def miner_thread(self):
         """
         Miner thread, mines block and once found broadcasts to peers.
         """
-        while not self.done: 
+        while not self.done:
             # check for chain
             if not self.chain:
                 self.chain = BlockChain()
