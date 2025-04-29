@@ -1,10 +1,10 @@
 import json
 import socket
-from threading import Thread
+from threading import Lock, Thread
 from time import sleep
+
+from lib.packet import DataPacket
 from lib.utils import Addr, setup_logger
-from lib.packet import DataPacket, PacketType
-from threading import Lock
 
 log = setup_logger(1, name=__name__)
 
@@ -55,18 +55,21 @@ class P2P:
 
     def receiver_handler(self):
         """
-        Accepts incoming connections and creates the threads to handle them 
+        Accepts incoming connections and creates the threads to handle them
         """
         while not self.done:
             try:
                 conn, addr = self.sock.accept()
-                Thread(target=self.handle_connection, args=(conn, addr), daemon=True).start()
+                Thread(
+                    target=self.handle_connection, args=(conn, addr), daemon=True
+                ).start()
             except Exception as e:
                 log.error(f"Error accepting the connection: {e}")
+
     def handle_connection(self, conn: socket.socket, addr: Addr):
         """
-        Handles the incoming socket connection and buffers the incoming data until complete 
-        JSON received 
+        Handles the incoming socket connection and buffers the incoming data
+        until complete JSON received
 
         Parameters:
             conn : socket.socket
@@ -108,12 +111,12 @@ class P2P:
 
         Parameters:
             data : dict
-                The dictionary to encode 
+                The dictionary to encode
 
         Returns:
             bytes
-                The encoded JSON byte string 
-        
+                The encoded JSON byte string
+
         """
         return json.dumps(data).encode()
 
@@ -123,16 +126,16 @@ class P2P:
 
         Parameters:
             payload : bytes
-                The JSON-encoded payload to send 
+                The JSON-encoded payload to send
             dest : Addr
-                The destination address tuple (IP, port) 
+                The destination address tuple (IP, port)
 
         Returns:
             None
         """
         with self.lock:
             self.outbound.append((payload, dest))
-        log.info(f"Queued packet to {dest}: {packet.data}")
+        log.info(f"Queued packet to {dest}: {payload}")
 
     def close(self):
         self.done = True
@@ -159,9 +162,10 @@ class Peer(P2P):
     On DROP, notify tracker.
     """
 
+
 if __name__ == "__main__":
     server = P2P("127.0.0.1", 65432)
     server.start()
     print(f"Server listening on {server.addr}")
     while True:
-        pass 
+        pass
