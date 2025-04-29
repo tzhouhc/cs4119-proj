@@ -339,6 +339,29 @@ class TrackerPeer(Tracker, Peer):
         else:
             return Tracker.state(self)
 
+    def state_test(self) -> int:
+        return 2
+
+
+class TrackerPeer(Tracker, Peer):
+
+    def __init__(self, ip: str, port: int, state=PEER):
+        P2P.__init__(self, ip, port)
+        self.state = state
+
+    def become_peer(self):
+        self.state = PEER
+
+    def become_tracker(self):
+        self.state = TRACKER
+
+    # Sample inheritance
+    def state_test(self) -> int:
+        if self.state == PEER:
+            return Peer.state_test(self)
+        else:
+            return Tracker.state_test(self)
+
 
 if __name__ == "__main__":
     server = P2P("127.0.0.1", 65432)
