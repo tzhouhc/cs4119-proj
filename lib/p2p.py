@@ -4,6 +4,7 @@ from threading import Thread
 from time import sleep
 from lib.utils import Addr, setup_logger
 from lib.packet import DataPacket, PacketType
+from threading import Lock
 
 log = setup_logger(1, name=__name__)
 
@@ -60,7 +61,7 @@ class P2P:
                 Thread(target=self.handle_connection, args=(conn, addr), daemon=True).start()
             except Exception as e:
                 log.error(f"Error accepting the connection: {e}")
-    def connection_handler(self, conn: socket.socket, addr: Addr):
+    def handle_connection(self, conn: socket.socket, addr: Addr):
         """
         Handles the incoming socket connection and buffers the incoming data until complete 
         JSON received 
@@ -83,13 +84,16 @@ class P2P:
                 buffer += data
                 while True:
                     try:
-                        # Decode one full JSON object
-                        message, idx = json.JSONDecoder().raw_decode(buffer.decode())
-                        buffer = buffer[idx:].lstrip().encode()
+                        decoded = buffer.decode()
+                        message, idx = json.JSONDecoder().raw_decode(decoded)
+                        remaining = decoded[idx:].lstrip()
+                        buffer = remaining.encode()
+
                         with self.lock:
                             self.inbound.append((json.dumps(message).encode(), addr))
+                       
+                        print(f"Received complete JSON from {addr}")
                     except json.JSONDecodeError:
-                        # data imcomplete, wait for more
                         break
         except Exception as e:
             log.error(f"Error handling connection from {addr}: {e}")
@@ -143,8 +147,6 @@ class Tracker(P2P):
     On receiving DROP notice, remove peer from list.
     """
 
-    ...
-
 
 class Peer(P2P):
     """
@@ -154,4 +156,9 @@ class Peer(P2P):
     On DROP, notify tracker.
     """
 
-    ...
+if __name__ == "__main__":
+    server = P2P("127.0.0.1", 65432)
+    server.start()
+    print(f"Server listening on {server.addr}")
+    while True:
+        pass 
