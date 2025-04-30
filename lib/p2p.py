@@ -60,6 +60,8 @@ class P2P:
                     temp_sock.sendall(payload)
                     temp_sock.close()
                     log.info(f"Sent packet to {dest}")
+                except ConnectionAbortedError:
+                    log.debug("Connected aborted presumably due to close.")
                 except Exception as e:
                     log.error(f"Failed to send packet to {dest}: {e}")
             sleep(0.1)
@@ -74,6 +76,8 @@ class P2P:
                 Thread(
                     target=self.handle_connection, args=(conn, addr), daemon=True
                 ).start()
+            except ConnectionAbortedError:
+                log.debug("Connected aborted presumably due to close.")
             except Exception as e:
                 log.error(f"Error accepting the connection: {e}")
 
@@ -111,6 +115,8 @@ class P2P:
                         print(f"Received complete JSON from {addr}")
                     except json.JSONDecodeError:
                         break
+        except ConnectionAbortedError:
+            log.debug("Connected aborted presumably due to close.")
         except Exception as e:
             log.error(f"Error handling connection from {addr}: {e}")
         finally:
@@ -149,7 +155,19 @@ class P2P:
         log.info(f"Queued packet to {dest}: {payload}")
 
     def close(self):
+        """
+        Close the connection and terminate current activities; does NOT block.
+
+        This will terminate any ongoing socket wait or read/write, but
+        will let threads finish their last loop.
+
+        Returns:
+            None
+        """
         self.done = True
+        # terminate connection; does NOT wait for thread finish. As such, this
+        # method does not block.
+        self.sock.close()
 
     def run(self):
         raise NotImplementedError()
@@ -167,8 +185,9 @@ class Tracker(P2P):
     On receiving DROP notice, remove peer from list.
     """
 
-    def state_test(self) -> int:
-        return 1
+    def state(self) -> int:
+        """Test method, returns current state representation int."""
+        return TRACKER
 
 
 class Peer(P2P):
@@ -288,28 +307,37 @@ class Peer(P2P):
             # reset
             self.block = None
 
-    def state_test(self) -> int:
-        return 2
+    def state(self) -> int:
+        """Test method, returns current state representation int."""
+        return PEER
 
 
 class TrackerPeer(Tracker, Peer):
 
     def __init__(self, ip: str, port: int, state=PEER):
         P2P.__init__(self, ip, port)
-        self.state = state
+        self._state = state
 
-    def become_peer(self):
-        self.state = PEER
+    def become_peer(self) -> None:
+        """Start acting like a peer."""
+        self._state = PEER
 
-    def become_tracker(self):
-        self.state = TRACKER
+    def become_tracker(self) -> None:
+        """Start acting like a tracker."""
+        self._state = TRACKER
 
     # Sample inheritance
-    def state_test(self) -> int:
-        if self.state == PEER:
-            return Peer.state_test(self)
+    def state(self) -> int:
+        """
+        Test method, returns current state representation int.
+
+        Deliberately written like so to verify that we are calling the right
+        parent's implementation.
+        """
+        if self._state == PEER:
+            return Peer.state(self)
         else:
-            return Tracker.state_test(self)
+            return Tracker.state(self)
 
 
 if __name__ == "__main__":
