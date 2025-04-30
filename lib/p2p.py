@@ -12,7 +12,6 @@ from lib.packet import (
     PeerListRequestPacket,
     RedirectPacket
 )
-from lib.blockchain import BlockChain
 from lib.utils import Addr, setup_logger
 
 log = setup_logger(1, name=__name__)
@@ -29,13 +28,14 @@ class P2P:
     def __init__(self, ip: str, port: int) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # this allows the handler threads to possibly cancel and retry and
+        # thus exit their loop
+        self.sock.settimeout(0.1)
         self.addr = (ip, port)
         self.tracker = None
         self.peers: set[Addr] = set()
         self.outbound: list[Packet] = []
         self.inbound: list[Packet] = []
-        self.sender_thread: Thread = Thread(target=self.sender_handler, daemon=True)
-        self.receiver_thread: Thread = Thread(target=self.receiver_handler, daemon=True)
         self.chain = None
         self.done = False
         self.lock = Lock()
@@ -45,7 +45,19 @@ class P2P:
     def get_peers(self) -> list[Addr]:
         return list(self.peers)
 
-    def start(self):
+    def start(self) -> None:
+        """
+        Start the active components of the P2P class.
+
+        Notably, initializes both the handler threads and the main socket.
+        While the handler threads and supporting data structures can be stopped
+        or cleared, the port will remain until the final close() call.
+
+        Returns:
+            None
+        """
+        self.sender_thread: Thread = Thread(target=self.sender_handler)
+        self.receiver_thread: Thread = Thread(target=self.receiver_handler)
         self.sock.bind(self.addr)
         self.sock.listen(1)
         self.sender_thread.start()
@@ -67,6 +79,8 @@ class P2P:
                     log.info(f"Sent packet to {dest}")
                 except ConnectionAbortedError:
                     log.debug("Connected aborted presumably due to close.")
+                except TimeoutError:
+                    log.debug("Connected timed out.")
                 except Exception as e:
                     log.error(f"Failed to send packet to {dest}: {e}")
             sleep(0.1)
@@ -83,6 +97,8 @@ class P2P:
                 ).start()
             except ConnectionAbortedError:
                 log.debug("Connected aborted presumably due to close.")
+            except TimeoutError:
+                log.debug("Connected timed out.")
             except Exception as e:
                 log.error(f"Error accepting the connection: {e}")
 
@@ -122,6 +138,8 @@ class P2P:
                         break
         except ConnectionAbortedError:
             log.debug("Connected aborted presumably due to close.")
+        except TimeoutError:
+            log.debug("Connected timed out.")
         except Exception as e:
             log.error(f"Error handling connection from {addr}: {e}")
         finally:
@@ -159,28 +177,70 @@ class P2P:
             self.outbound.append((payload, dest))
         log.info(f"Queued packet to {dest}: {payload}")
 
-    def close(self):
+    def stop(self) -> None:
         """
-        Close the connection and terminate current activities; does NOT block.
+        Terminate current activities. Maintain current port.
 
-        This will terminate any ongoing socket wait or read/write, but
-        will let threads finish their last loop.
+        This will let threads finish their last loop and gracefully join the
+        incoming/outgoing threads. This does *not* however check that the
+        queues are empty.
 
         Returns:
             None
         """
         self.done = True
-        # terminate connection; does NOT wait for thread finish. As such, this
-        # method does not block.
+        self.receiver_thread.join()
+        self.sender_thread.join()
+        with self.lock:
+            # TODO: consider adopting separate locks for in/out. Buffer can
+            # stick with in.
+            self.inbound = []
+            self.outbound = []
+            self.buffer = b""
+
+    def resume(self) -> None:
+        """
+        Resume activity.
+
+        Will create new threads for incoming/outgoing traffic.
+
+        During the restart process, it will maintain the following:
+        self.sock
+        self.addr
+        self.tracker
+        self.peers
+        self.chain
+        self.lock
+        self.decoder = json.JSONDecoder()
+        """
+        self.done = False
+        self.sender_thread: Thread = Thread(target=self.sender_handler)
+        self.receiver_thread: Thread = Thread(target=self.receiver_handler)
+        self.sender_thread.start()
+        self.receiver_thread.start()
+
+    def close(self) -> None:
+        """
+        Close the connection and terminate current activities.
+
+        This will let threads finish their last loop, join the threads, then
+        actually close the port. Once closed, it might be troublesome to try
+        to restart on the same ports, so only call this at the end of a
+        session.
+
+        Returns:
+            None
+        """
+        self.stop()
         self.sock.close()
 
-    def send_packet(self, pkt: DataPacket, dst):
+    def send_packet(self, pkt: DataPacket, dst) -> None:
+        """
+        Shorthand for sending specifically DataPackets.
+        """
         self.outbound.append((pkt.as_bytes(), dst))
 
     def run(self):
-        raise NotImplementedError()
-
-    def stop(self):
         raise NotImplementedError()
 
 
@@ -211,6 +271,9 @@ class Tracker(P2P):
         for peer in self.peers:
             self.send_packet(pkt, peer)
 
+    def become_peer(self) -> None:
+        raise NotImplementedError("Tracker does not have become_peer implemented.")
+
     def respond(self, msg: dict, src: Addr) -> None:
         """
         Actual responding method that takes data dict, interpret as a
@@ -240,14 +303,11 @@ class Tracker(P2P):
                 # promote sender of updated chain as new tracker
                 resp = AnnouncementPacket(self.chain, src)
                 self.announce(resp)
-                # TODO: state transition to start operating as Peer
-        else:
-            # invalid pkt type for tracker
-            # TODO: consider if we might still want to do something for invalid
-            # packets.
-            return
+                # this function is unimplemented in the Tracker class, but will
+                # be available to its subclass, TrackerPeer.
+                self.become_peer()
 
-    def responder_thread(self):
+    def responder_thread(self) -> None:
         """
         Responder thread, which handles repeatedly receiving packets and
         handling them based on type.
@@ -413,6 +473,9 @@ class TrackerPeer(Tracker, Peer):
     def state(self) -> int:
         """Test method, returns current state representation int."""
         return PEER
+
+    def become_tracker(self) -> None:
+        raise NotImplementedError("Tracker does not have become_peer implemented.")
 
 
 class TrackerPeer(Tracker, Peer):

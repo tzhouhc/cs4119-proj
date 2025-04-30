@@ -37,17 +37,35 @@ class TestTrackerPeer(unittest.TestCase):
     # note: test naming explicitly affects order of execution; otherwise the
     # tests will *not* run sequentially by the order that they are defined.
 
-    def test_state_change_01(self):
+    def test_01_state_change_01(self):
         # PEER = 0
         self.assertEqual(self.tp.state(), 0)
         self.tp.become_tracker()
         # TRACKER = 1
         self.assertEqual(self.tp.state(), 1)
 
-    def test_state_change_02(self):
+    def test_01_state_change_02(self):
         self.assertEqual(self.tp.state(), 1)
         self.tp.become_peer()
         self.assertEqual(self.tp.state(), 0)
+
+    def test_02_restart_01(self):
+        self.tp.stop()
+        self.assertTrue(self.tp.done)
+        self.tp.resume()
+        self.assertFalse(self.tp.done)
+
+    def test_02_restart_02_as_other(self):
+        self.tp.stop()
+        cur_state = self.tp.state()
+        if self.tp.state() == 0:
+            self.tp.become_tracker()
+        else:
+            self.tp.become_peer()
+        self.assertNotEqual(cur_state, self.tp.state())
+        self.assertTrue(self.tp.done)
+        self.tp.resume()
+        self.assertFalse(self.tp.done)
 
     @classmethod
     def tearDownClass(cls):
