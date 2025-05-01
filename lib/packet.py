@@ -1,3 +1,4 @@
+import json
 from enum import IntEnum
 from time import time
 from typing import Any
@@ -26,8 +27,52 @@ class DataPacket:
     def __init__(self):
         self.data = {"timestamp": time()}
 
-    def as_dict(self):
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, DataPacket):
+            return False
+        return self.data == other.data
+
+    def __str__(self) -> str:
+        return str(self.data)
+
+    def __getitem__(self, key: Any) -> Any:
+        """Support c[i]."""
+        return self.data[key]
+
+    def __getattr__(self, key: str) -> Any:
+        """Support c.key direct access."""
+        if key in self.data:
+            return self.data[key]
+        raise AttributeError(f"Attribute {key} not found.")
+
+    def as_dict(self) -> dict:
         return self.data
+
+    def as_bytes(self) -> bytes:
+        return json.dumps(self.data).encode()
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DataPacket":
+        if "type" not in data:
+            raise ValueError("Malformed data dict")
+        dtype = data["type"]
+        res = None
+        if dtype == PacketType.ANNOUNCEMENT:
+            res = AnnouncementPacket(
+                BlockChain.from_list(data["chain"]), data["tracker"]
+            )
+        elif dtype == PacketType.PEER_LIST_REQUEST:
+            res = PeerListRequestPacket()
+        elif dtype == PacketType.BLOCK_UPDATE:
+            res = BlockUpdatePacket(BlockChain.from_list(data["chain"]))
+        elif dtype == PacketType.REDIRECT:
+            res = RedirectPacket(data["tracker"])
+        elif dtype == PacketType.PEER_LIST:
+            res = PeerListPacket(data["tracker"], data["peers"])
+        else:
+            raise ValueError("Unknown packet type")
+        res.data["timestamp"] = data["timestamp"]
+        return res
 
 
 class PeerListRequestPacket(DataPacket):
@@ -58,7 +103,7 @@ class BlockUpdatePacket(DataPacket):
     def __init__(self, c: BlockChain):
         super().__init__()
         self.data["type"] = PacketType.BLOCK_UPDATE
-        self.data["chain"] = c
+        self.data["chain"] = c.as_list()
 
 
 class RedirectPacket(DataPacket):
@@ -107,7 +152,7 @@ class AnnouncementPacket(DataPacket):
     def __init__(self, c: BlockChain, tracker: Addr):
         super().__init__()
         self.data["type"] = PacketType.ANNOUNCEMENT
-        self.data["chain"] = c
+        self.data["chain"] = c.as_list()
         self.data["tracker"] = tracker
 
 
