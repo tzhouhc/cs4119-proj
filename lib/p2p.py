@@ -41,6 +41,10 @@ class P2P:
         self.lock = Lock()
         self.buffer = b""
         self.decoder = json.JSONDecoder()
+        # --- info flags; if we need to do some conditional signals they could
+        # be of some use too?
+        self.listening = False
+        self.sending = False
 
     def get_peers(self) -> list[Addr]:
         return list(self.peers)
@@ -67,6 +71,7 @@ class P2P:
         """
         Checks the outbound queue and sends messages over TCP
         """
+        self.sending = True
         while not self.done:
             if self.outbound:
                 with self.lock:
@@ -84,11 +89,13 @@ class P2P:
                 except Exception as e:
                     log.error(f"Failed to send packet to {dest}: {e}")
             sleep(0.1)
+        self.sending = False
 
     def receiver_handler(self):
         """
         Accepts incoming connections and creates the threads to handle them
         """
+        self.listening = True
         while not self.done:
             try:
                 conn, addr = self.sock.accept()
@@ -101,6 +108,7 @@ class P2P:
                 log.debug("Connected timed out.")
             except Exception as e:
                 log.error(f"Error accepting the connection: {e}")
+        self.listening = False
 
     def handle_connection(self, conn: socket.socket, addr: Addr):
         """
@@ -485,12 +493,30 @@ class TrackerPeer(Tracker, Peer):
         self._state = state
 
     def become_peer(self) -> None:
-        """Start acting like a peer."""
+        """
+        Start acting like a peer.
+
+        Will stop currently running threads after final iteration, join them,
+        switch state, then start new ones. Maintains self state otherwise.
+        """
+        # first, halt all processing threads; they should finish what they have
+        # left and then cleanup.
+        self.stop()
+        log.info("Transitioning to PEER")
         self._state = PEER
+        self.resume()
 
     def become_tracker(self) -> None:
-        """Start acting like a tracker."""
+        """
+        Start acting like a tracker.
+
+        Will stop currently running threads after final iteration, join them,
+        switch state, then start new ones. Maintains self state otherwise.
+        """
+        self.stop()
+        log.info("Transitioning to TRACKER")
         self._state = TRACKER
+        self.resume()
 
     # Sample inheritance
     def state(self) -> int:

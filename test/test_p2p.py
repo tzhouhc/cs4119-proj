@@ -1,7 +1,7 @@
 import unittest
 from time import sleep
 
-from lib.p2p import Peer, Tracker, TrackerPeer
+from lib.p2p import PEER, TRACKER, Peer, Tracker, TrackerPeer
 
 
 class TestP2P(unittest.TestCase):
@@ -27,45 +27,82 @@ class TestP2P(unittest.TestCase):
         cls.peer.close()
 
 
-class TestTrackerPeer(unittest.TestCase):
+class TestTrackerPeerConversion(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         cls.tp = TrackerPeer("0.0.0.0", 50002, 0)
         cls.tp.start()
 
+    # ----
+    # test helpers; camelCase becauses unittest assertion functions are
+    # already like that....
+    # ----
+
+    def assertThreadsActive(self):
+        self.assertTrue(self.tp.listening)
+        self.assertTrue(self.tp.sending)
+        self.assertFalse(self.tp.done)
+
+    def assertThreadsInactive(self):
+        self.assertFalse(self.tp.listening)
+        self.assertFalse(self.tp.sending)
+        self.assertTrue(self.tp.done)
+
+    def assertIsPeer(self):
+        self.assertEqual(self.tp.state(), PEER)
+
+    def assertIsTracker(self):
+        self.assertEqual(self.tp.state(), TRACKER)
+
     # note: test naming explicitly affects order of execution; otherwise the
     # tests will *not* run sequentially by the order that they are defined.
 
     def test_01_state_change_01(self):
-        # PEER = 0
-        self.assertEqual(self.tp.state(), 0)
+        """Numbered tests, start from here as default, i.e. peer."""
+        self.assertIsPeer()
         self.tp.become_tracker()
-        # TRACKER = 1
-        self.assertEqual(self.tp.state(), 1)
+        self.assertIsTracker()
 
     def test_01_state_change_02(self):
-        self.assertEqual(self.tp.state(), 1)
+        """Test class instance should remain since last test."""
+        self.assertIsTracker()
         self.tp.become_peer()
-        self.assertEqual(self.tp.state(), 0)
+        self.assertIsPeer()
 
     def test_02_restart_01(self):
+        """Stopping and restarting should maintain state."""
+        self.assertIsPeer()
+        self.assertThreadsActive()
         self.tp.stop()
-        self.assertTrue(self.tp.done)
+        self.assertThreadsInactive()
         self.tp.resume()
-        self.assertFalse(self.tp.done)
+        self.assertThreadsActive()
+        self.assertIsPeer()
 
-    def test_02_restart_02_as_other(self):
+    def test_02_restart_02_set_as_other(self):
+        """Stopping, changing state and restarting should update."""
+        self.assertThreadsActive()
         self.tp.stop()
         cur_state = self.tp.state()
+        if self.tp.state() == 0:
+            self.tp._state = 1
+        else:
+            self.tp._state = 0
+        self.assertNotEqual(cur_state, self.tp.state())
+        self.assertThreadsInactive()
+        self.tp.resume()
+        self.assertThreadsActive()
+
+    def test_02_restart_03_become_other(self):
+        """Use 'become' methods to achieve the same."""
+        self.assertThreadsActive()
+        # "become" automatically performs stop and resume, so no checking here.
         if self.tp.state() == 0:
             self.tp.become_tracker()
         else:
             self.tp.become_peer()
-        self.assertNotEqual(cur_state, self.tp.state())
-        self.assertTrue(self.tp.done)
-        self.tp.resume()
-        self.assertFalse(self.tp.done)
+        self.assertThreadsActive()
 
     @classmethod
     def tearDownClass(cls):
