@@ -1,7 +1,10 @@
 import unittest
+from logging import WARNING
 from time import sleep
 
-from lib.p2p import PEER, TRACKER, Peer, Tracker, TrackerPeer
+from lib.p2p import P2P, PEER, TRACKER, Peer, Tracker, TrackerPeer
+
+P2P.log.setLevel(WARNING)
 
 
 class TestP2P(unittest.TestCase):

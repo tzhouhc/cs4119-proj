@@ -15,8 +15,6 @@ from lib.packet import (
 from lib.provider import ContentProvider, MockContentProvider
 from lib.utils import Addr, setup_logger
 
-log = setup_logger(1, name=__name__)
-
 Packet = tuple[bytes, Addr]
 
 PEER = 0
@@ -25,6 +23,8 @@ TRACKER = 1
 
 class P2P:
     """Generalized P2P actor class."""
+
+    log = setup_logger(1, name="P2P")
 
     def __init__(self, ip: str, port: int) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -76,7 +76,7 @@ class P2P:
         """
         Checks the outbound queue and sends messages over TCP
         """
-        log.info("Sender thread starting.")
+        self.log.info("Sender thread starting.")
         self.sending = True
         while not self.done:
             if self.outbound:
@@ -87,46 +87,46 @@ class P2P:
                     # cannot send a dest-less packet; this is possible during
                     # testing if a tracker is not set but we are mining
                     continue
-                log.info(f"Preparing to send to {dest}")
+                self.log.info(f"Preparing to send to {dest}")
                 try:
                     temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     temp_sock.connect(dest)
                     temp_sock.sendall(payload)
-                    log.info(f"Sent packet to {dest}")
+                    self.log.info(f"Sent packet to {dest}")
                 except ConnectionAbortedError:
-                    log.debug("Connected aborted presumably due to close.")
+                    self.log.debug("Connected aborted presumably due to close.")
                 except TimeoutError:
-                    log.debug("Connected timed out.")
+                    self.log.debug("Connected timed out.")
                 except Exception as e:
-                    log.error(f"Failed to send packet to {dest}: {e}")
+                    self.log.error(f"Failed to send packet to {dest}: {e}")
                 finally:
                     if temp_sock:
                         temp_sock.close()
             sleep(0.1)
         self.sending = False
-        log.info("Sender thread stopped.")
+        self.log.info("Sender thread stopped.")
 
     def receiver_handler(self):
         """
         Accepts incoming connections and creates the threads to handle them
         """
-        log.info("Receiver thread starting.")
+        self.log.info("Receiver thread starting.")
         self.listening = True
         while not self.done:
             try:
                 conn, addr = self.sock.accept()
-                log.info(f"Received conn from {addr}")
+                self.log.info(f"Received conn from {addr}")
                 Thread(
                     target=self.handle_connection, args=(conn, addr), daemon=True
                 ).start()
             except ConnectionAbortedError:
-                log.debug("Connected aborted presumably due to close.")
+                self.log.debug("Connected aborted presumably due to close.")
             except TimeoutError:
-                log.debug("Connected timed out.")
+                self.log.debug("Connected timed out.")
             except Exception as e:
-                log.error(f"Error accepting the connection: {e}")
+                self.log.error(f"Error accepting the connection: {e}")
         self.listening = False
-        log.info("Receiver thread stopped.")
+        self.log.info("Receiver thread stopped.")
 
     def handle_connection(self, conn: socket.socket, addr: Addr):
         """
@@ -142,7 +142,7 @@ class P2P:
         Returns:
             None
         """
-        log.info(f"Handling connection from {addr}")
+        self.log.info(f"Handling connection from {addr}")
         try:
             buffer = b""
             while not self.done:
@@ -159,15 +159,15 @@ class P2P:
                         packet = DataPacket.from_dict(message)
                         with self.lock:
                             self.inbound.append((json.dumps(message).encode(), addr))
-                        log.info(f"Received complete JSON from {addr}")
+                        self.log.info(f"Received complete JSON from {addr}")
                     except json.JSONDecodeError:
                         break
         except ConnectionAbortedError:
-            log.debug("Connected aborted presumably due to close.")
+            self.log.debug("Connected aborted presumably due to close.")
         except TimeoutError:
-            log.debug("Connected timed out.")
+            self.log.debug("Connected timed out.")
         except Exception as e:
-            log.error(f"Error handling connection from {addr}: {e}")
+            self.log.error(f"Error handling connection from {addr}: {e}")
         finally:
             conn.close()
 
@@ -201,7 +201,7 @@ class P2P:
         """
         with self.lock:
             self.outbound.append((payload, dest))
-        log.info(f"Queued packet to {dest}: {payload}")
+        self.log.info(f"Queued packet to {dest}: {payload}")
 
     def stop(self) -> None:
         """
@@ -267,7 +267,7 @@ class P2P:
 
         This is a *blocking* call.
         """
-        log.info("Tracker responder thread starting.")
+        self.log.info("Responder thread starting.")
         while not self.done:
             if self.inbound:
                 msg, src = self.inbound.pop(0)
@@ -275,7 +275,7 @@ class P2P:
                 self.respond(data, src)
             else:
                 sleep(0.1)
-        log.info("Tracker responder thread stopped.")
+        self.log.info("Responder thread stopped.")
 
     def respond(self, msg: dict, src: Addr) -> None:
         raise NotImplementedError("Should not use P2P respond method.")
@@ -315,7 +315,7 @@ class Tracker(P2P):
         P2P.__init__(self, ip, port)
 
     def start(self) -> None:
-        log.info("Tracker start process.")
+        self.log.info("Tracker start process.")
         P2P.start(self)
 
     def stop(self):
@@ -344,7 +344,7 @@ class Tracker(P2P):
         try:
             pkt = DataPacket.from_dict(msg)
         except ValueError as e:
-            log.warning(f"Failed to interpret packet: {e}")
+            self.log.warning(f"Failed to interpret packet: {e}")
         # valid packet, add peer to list
         self.peers.add(src)
         if isinstance(pkt, PeerListRequestPacket):
@@ -390,7 +390,7 @@ class Peer(P2P):
         """
         Start active components of Peer class, including two threads.
         """
-        log.info("Peer start process.")
+        self.log.info("Peer start process.")
         self.mine_thread = Thread(target=self.miner_thread, daemon=True)
         self.mine_thread.start()
         P2P.start(self)
@@ -419,7 +419,7 @@ class Peer(P2P):
         try:
             pkt = DataPacket.from_dict(msg)
         except ValueError as e:
-            log.warning(f"Failed to interpret packet: {e}")
+            self.log.warning(f"Failed to interpret packet: {e}")
         # valid packet, respond
         if isinstance(pkt, PeerListRequestPacket) or isinstance(pkt, BlockUpdatePacket):
             # send redirect
@@ -454,7 +454,7 @@ class Peer(P2P):
         """
         Miner thread, mines block and once found broadcasts to peers.
         """
-        log.info("Miner thread starting.")
+        self.log.info("Miner thread starting.")
         while not self.done:
             # check for chain
             if not self.chain:
@@ -485,7 +485,7 @@ class Peer(P2P):
             self.send_packet(pkt, self.tracker)
             # reset
             self.block = None
-        log.info("Miner thread stopped.")
+        self.log.info("Miner thread stopped.")
 
     def state(self) -> int:
         """Test method, returns current state representation int."""
@@ -502,7 +502,7 @@ class TrackerPeer(Tracker, Peer):
         self._state = state
         self.block = None
         self.provider = MockContentProvider()
-        log.info("TrackerPeer created.")
+        self.log.info("TrackerPeer created.")
 
     def set_state(self, state: int) -> None:
         """
@@ -511,7 +511,7 @@ class TrackerPeer(Tracker, Peer):
         Used for initial setup.
         """
         self._state = state
-        log.info(f"TrackerPeer changing to state {state}.")
+        self.log.info(f"TrackerPeer changing to state {state}.")
 
     def become_peer(self) -> None:
         """
@@ -523,7 +523,7 @@ class TrackerPeer(Tracker, Peer):
         # first, halt all processing threads; they should finish what they have
         # left and then cleanup.
         self.stop()
-        log.info("Transitioning to PEER")
+        self.log.info("Transitioning to PEER")
         self.set_state(PEER)
         self.resume()
 
@@ -535,7 +535,7 @@ class TrackerPeer(Tracker, Peer):
         switch state, then start new ones. Maintains self state otherwise.
         """
         self.stop()
-        log.info("Transitioning to TRACKER")
+        self.log.info("Transitioning to TRACKER")
         self.set_state(TRACKER)
         self.resume()
 
@@ -558,7 +558,7 @@ class TrackerPeer(Tracker, Peer):
 
         Will run the state-appropriate start method.
         """
-        log.info("TrackerPeer starting.")
+        self.log.info("TrackerPeer starting.")
         if self._state == PEER:
             return Peer.start(self)
         else:
@@ -572,7 +572,7 @@ class TrackerPeer(Tracker, Peer):
 
         This will also be invoked as part of the unified close method.
         """
-        log.info("TrackerPeer stopping.")
+        self.log.info("TrackerPeer stopping.")
         if self._state == PEER:
             return Peer.stop(self)
         else:
@@ -584,7 +584,7 @@ class TrackerPeer(Tracker, Peer):
 
         Will run the state-appropriate resume method.
         """
-        log.info("TrackerPeer resuming.")
+        self.log.info("TrackerPeer resuming.")
         if self._state == PEER:
             return Peer.resume(self)
         else:
@@ -609,7 +609,7 @@ class TrackerPeer(Tracker, Peer):
         This handles the creation and joining of the other threads, since
         threads cannot join on themselves.
         """
-        log.info("TrackerPeer main loop running.")
+        self.log.info("TrackerPeer main loop running.")
         P2P.responder_thread(self)
 
 
