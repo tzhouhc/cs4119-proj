@@ -277,13 +277,22 @@ class Tracker(P2P):
         super().__init__(ip, port)
 
     def start(self) -> None:
-        super().start()
         self.auto_respond_thread: Thread = Thread(
             target=self.responder_thread, daemon=True
         )
         self.auto_respond_thread.start()
+        super().start()
 
-    # TODO: pause and resume methods
+    def stop(self):
+        super().stop()
+        self.auto_respond_thread.join()
+
+    def resume(self):
+        self.auto_respond_thread: Thread = Thread(
+            target=self.responder_thread, daemon=True
+        )
+        self.auto_respond_thread.start()
+        super().resume()
 
     def announce(self, pkt: DataPacket) -> None:
         """
@@ -364,19 +373,31 @@ class Peer(P2P):
         """
         Start active components of Peer class, including two threads.
         """
-        super().start()
         self.auto_respond_thread = Thread(
             target=self.responder_thread, daemon=True
         )  # create thread
         self.mine_thread = Thread(target=self.miner_thread, daemon=True)
         self.auto_respond_thread.start()
         self.mine_thread.start()
+        super().start()
 
         # initial request
         pkt = PeerListRequestPacket()
         self.send_packet(pkt, self.tracker)
 
-    # TODO: pause and resume methods
+    def stop(self):
+        super().stop()
+        self.auto_respond_thread.join()
+        self.mine_thread.join()
+
+    def resume(self):
+        self.auto_respond_thread = Thread(
+            target=self.responder_thread, daemon=True
+        )  # create thread
+        self.mine_thread = Thread(target=self.miner_thread, daemon=True)
+        self.auto_respond_thread.start()
+        self.mine_thread.start()
+        super().resume()
 
     def respond(self, msg: dict, src: Addr) -> None:
         """
@@ -524,10 +545,39 @@ class TrackerPeer(Tracker, Peer):
             return Tracker.state(self)
 
     def start(self) -> None:
+        """
+        Shared start entry point.
+
+        Will run the state-appropriate start method.
+        """
         if self._state == PEER:
             return Peer.start(self)
         else:
             return Tracker.start(self)
+
+    def stop(self) -> None:
+        """
+        Shared stop entry point.
+
+        Will run the state-appropriate stop method.
+
+        This will also be invoked as part of the unified close method.
+        """
+        if self._state == PEER:
+            return Peer.stop(self)
+        else:
+            return Tracker.stop(self)
+
+    def resume(self) -> None:
+        """
+        Shared resume entry point.
+
+        Will run the state-appropriate resume method.
+        """
+        if self._state == PEER:
+            return Peer.resume(self)
+        else:
+            return Tracker.resume(self)
 
 
 if __name__ == "__main__":
