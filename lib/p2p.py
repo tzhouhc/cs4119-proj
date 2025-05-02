@@ -39,6 +39,7 @@ class P2P:
         self.inbound: list[Packet] = []
         self.chain = None
         self.done = False
+        self.stopped = False
         self.lock = Lock()
         self.buffer = b""
         self.decoder = json.JSONDecoder()
@@ -65,6 +66,7 @@ class P2P:
         Returns:
             None
         """
+        self.stopped = False
         self.sender_thread: Thread = Thread(target=self.sender_handler)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler)
         self.sock.bind(self.addr)
@@ -83,10 +85,12 @@ class P2P:
                 with self.lock:
                     payload, dest = self.outbound.pop(0)
                 temp_sock = None
+                log.info("Have something to send!")
                 if not dest:
                     # cannot send a dest-less packet; this is possible during
                     # testing if a tracker is not set but we are mining
                     continue
+                log.info(f"Preparing to send to {dest}")
                 try:
                     temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     temp_sock.connect(dest)
@@ -113,7 +117,9 @@ class P2P:
         self.listening = True
         while not self.done:
             try:
+                log.info("Listening for conn reqs")
                 conn, addr = self.sock.accept()
+                log.info(f"Received conn from {addr}")
                 Thread(
                     target=self.handle_connection, args=(conn, addr), daemon=True
                 ).start()
@@ -140,6 +146,7 @@ class P2P:
         Returns:
             None
         """
+        log.info(f"Handling connection from {addr}")
         try:
             buffer = b""
             while not self.done:
@@ -221,6 +228,7 @@ class P2P:
             self.inbound = []
             self.outbound = []
             self.buffer = b""
+        self.stopped = True
 
     def resume(self) -> None:
         """
@@ -238,6 +246,7 @@ class P2P:
         self.decoder = json.JSONDecoder()
         """
         self.done = False
+        self.stopped = False
         self.sender_thread: Thread = Thread(target=self.sender_handler)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler)
         self.sender_thread.start()
@@ -258,11 +267,12 @@ class P2P:
         self.stop()
         self.sock.close()
 
-    def send_packet(self, pkt: DataPacket, dst) -> None:
+    def send_packet(self, pkt: DataPacket, dst: Addr) -> None:
         """
         Shorthand for sending specifically DataPackets.
         """
-        self.outbound.append((pkt.as_bytes(), dst))
+        with self.lock:
+            self.outbound.append((pkt.as_bytes(), dst))
 
     def run(self):
         raise NotImplementedError()
@@ -294,6 +304,8 @@ class Tracker(P2P):
 
     def stop(self):
         P2P.stop(self)
+        while not self.stopped:
+            sleep(0.001)
         self.auto_respond_thread.join()
 
     def resume(self):
@@ -332,7 +344,7 @@ class Tracker(P2P):
             self.send_packet(resp, src)
         elif isinstance(pkt, BlockUpdatePacket):
             # validate block
-            c: BlockChain = pkt.chain
+            c: BlockChain = BlockChain.from_list(pkt.chain)
             cur_c = self.chain
             if not c.is_valid():
                 return
@@ -399,6 +411,8 @@ class Peer(P2P):
 
     def stop(self):
         P2P.stop(self)
+        while not self.stopped:
+            sleep(0.001)
         self.auto_respond_thread.join()
         self.mine_thread.join()
 
@@ -541,6 +555,8 @@ class TrackerPeer(Tracker, Peer):
         # first, halt all processing threads; they should finish what they have
         # left and then cleanup.
         self.stop()
+        while not self.stopped:
+            sleep(0.001)
         log.info("Transitioning to PEER")
         self.set_state(PEER)
         self.resume()
@@ -553,6 +569,8 @@ class TrackerPeer(Tracker, Peer):
         switch state, then start new ones. Maintains self state otherwise.
         """
         self.stop()
+        while not self.stopped:
+            sleep(0.001)
         log.info("Transitioning to TRACKER")
         self.set_state(TRACKER)
         self.resume()

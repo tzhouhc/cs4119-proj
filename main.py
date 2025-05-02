@@ -28,6 +28,7 @@ def main():
         agent.set_state(TRACKER)
     else:
         print(f"Creating peer at {args.ip}:{args.port}.")
+        agent.set_tracker((args.tip, args.tport))
         agent.set_state(PEER)
     agent.start()
     sleep(30)
