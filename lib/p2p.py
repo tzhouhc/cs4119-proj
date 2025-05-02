@@ -2,16 +2,17 @@ import json
 import socket
 from threading import Lock, Thread
 from time import sleep
-from lib.llm import LLMContentProvider
-from lib.blockchain import BlockChain, Block
+
+from lib.blockchain import Block, BlockChain
 from lib.packet import (
     AnnouncementPacket,
     BlockUpdatePacket,
     DataPacket,
     PeerListPacket,
     PeerListRequestPacket,
-    RedirectPacket
+    RedirectPacket,
 )
+from lib.provider import ContentProvider, MockContentProvider
 from lib.utils import Addr, setup_logger
 
 log = setup_logger(1, name=__name__)
@@ -76,11 +77,15 @@ class P2P:
             if self.outbound:
                 with self.lock:
                     payload, dest = self.outbound.pop(0)
+                temp_sock = None
+                if not dest:
+                    # cannot send a dest-less packet; this is possible during
+                    # testing if a tracker is not set but we are mining
+                    continue
                 try:
                     temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     temp_sock.connect(dest)
                     temp_sock.sendall(payload)
-                    temp_sock.close()
                     log.info(f"Sent packet to {dest}")
                 except ConnectionAbortedError:
                     log.debug("Connected aborted presumably due to close.")
@@ -88,6 +93,9 @@ class P2P:
                     log.debug("Connected timed out.")
                 except Exception as e:
                     log.error(f"Failed to send packet to {dest}: {e}")
+                finally:
+                    if temp_sock:
+                        temp_sock.close()
             sleep(0.1)
         self.sending = False
 
@@ -267,10 +275,15 @@ class Tracker(P2P):
 
     def __init__(self, ip, port):
         super().__init__(ip, port)
-        self.peers = set()
+
+    def start(self) -> None:
+        super().start()
         self.auto_respond_thread: Thread = Thread(
             target=self.responder_thread, daemon=True
         )
+        self.auto_respond_thread.start()
+
+    # TODO: pause and resume methods
 
     def announce(self, pkt: DataPacket) -> None:
         """
@@ -336,25 +349,34 @@ class Peer(P2P):
     On JOIN, notify tracker and GET list of peers.
     On DROP, notify tracker.
     """
+
     def __init__(self, ip: str, port: int):
-        super().__init__(ip, port) # inherit
-        self.auto_respond_thread = Thread(target=self.responder_thread, daemon=True) #create thread
-        self.mine_thread = Thread(target=self.miner_thread, daemon=True)
-        self.peers = set()
+        super().__init__(ip, port)  # inherit
         self.block = None
-        self.content_provider = LLMContentProvider()
+        self.provider = MockContentProvider()
+
+    def set_provider(self, provider: ContentProvider) -> None:
+        """Replace default mock content provider with specified."""
+        # dependency injection to avoid soldering the provider
+        self.provider = provider
 
     def start(self):
         """
         Start active components of Peer class, including two threads.
         """
         super().start()
+        self.auto_respond_thread = Thread(
+            target=self.responder_thread, daemon=True
+        )  # create thread
+        self.mine_thread = Thread(target=self.miner_thread, daemon=True)
         self.auto_respond_thread.start()
         self.mine_thread.start()
 
         # initial request
         pkt = PeerListRequestPacket()
         self.send_packet(pkt, self.tracker)
+
+    # TODO: pause and resume methods
 
     def respond(self, msg: dict, src: Addr) -> None:
         """
@@ -388,7 +410,7 @@ class Peer(P2P):
             # get new chain
             new_chain = pkt["chain"]
             # check if valid
-            if not new_chain.is_valid(): #invalid chain
+            if not new_chain.is_valid():  # invalid chain
                 return
             else:
                 # stop current mining process
@@ -411,7 +433,6 @@ class Peer(P2P):
             else:
                 sleep(0.1)
 
-
     def miner_thread(self):
         """
         Miner thread, mines block and once found broadcasts to peers.
@@ -426,7 +447,8 @@ class Peer(P2P):
                 prev_hash = tail.hash
             else:
                 prev_hash = ""
-            new_block = Block(b"hello", prev_hash) # TODO: LLM block payload
+            content = self.provider.generate({})  # TODO: history
+            new_block = Block(content.encode(), prev_hash)
             self.mining_block = new_block
             # mine Block
             new_block.mine()
@@ -455,42 +477,12 @@ class TrackerPeer(Tracker, Peer):
 
     def __init__(self, ip: str, port: int, state=PEER):
         P2P.__init__(self, ip, port)
+        # NOTE: if I do the init for both parent classes instead, I will get
+        # two socket creations, which is not good, but I don't see how to fix
+        # this elegantly yet. At least both inits are lightweight.
         self._state = state
-
-    def become_peer(self) -> None:
-        """Start acting like a peer."""
-        self._state = PEER
-
-    def become_tracker(self) -> None:
-        """Start acting like a tracker."""
-        self._state = TRACKER
-
-    # Sample inheritance
-    def state(self) -> int:
-        """
-        Test method, returns current state representation int.
-
-        Deliberately written like so to verify that we are calling the right
-        parent's implementation.
-        """
-        if self._state == PEER:
-            return Peer.state(self)
-        else:
-            return Tracker.state(self)
-
-    def state(self) -> int:
-        """Test method, returns current state representation int."""
-        return PEER
-
-    def become_tracker(self) -> None:
-        raise NotImplementedError("Tracker does not have become_peer implemented.")
-
-
-class TrackerPeer(Tracker, Peer):
-
-    def __init__(self, ip: str, port: int, state=PEER):
-        P2P.__init__(self, ip, port)
-        self._state = state
+        self.block = None
+        self.provider = MockContentProvider()
 
     def become_peer(self) -> None:
         """
@@ -530,6 +522,12 @@ class TrackerPeer(Tracker, Peer):
             return Peer.state(self)
         else:
             return Tracker.state(self)
+
+    def start(self) -> None:
+        if self._state == PEER:
+            return Peer.start(self)
+        else:
+            return Tracker.start(self)
 
 
 if __name__ == "__main__":

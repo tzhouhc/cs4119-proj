@@ -2,6 +2,8 @@ from random import choice
 
 from openai import OpenAI
 
+from lib.provider import ContentProvider
+
 GPT_MODEL = "gpt-3.5-turbo-0125"
 
 STORYWRITER_PROMPT = """
@@ -22,14 +24,6 @@ wherever it docks, and to all who might happen upon it...""",
 ]
 
 
-class ContentProvider:
-    def __init__(self) -> None:
-        pass
-
-    def generate(self, input: dict) -> str:
-        raise NotImplementedError
-
-
 class LLMContentProvider(ContentProvider):
     def __init__(self) -> None:
         # use the env var OPENAI_API_KEY for API
@@ -46,12 +40,3 @@ class LLMContentProvider(ContentProvider):
             input=prompt,
         )
         return response.output_text
-
-
-class MockContentProvider(ContentProvider):
-    def __init__(self) -> None:
-        self.count = 0
-
-    def generate(self, input: dict) -> str:
-        self.count += 1
-        return f"This is the {self.count}th generated sentence."
