@@ -47,6 +47,10 @@ class P2P:
         self.listening = False
         self.sending = False
 
+    def set_tracker(self, tracker: Addr):
+        """Set tracker to specified addr."""
+        self.tracker = tracker
+
     def get_peers(self) -> list[Addr]:
         return list(self.peers)
 
@@ -72,6 +76,7 @@ class P2P:
         """
         Checks the outbound queue and sends messages over TCP
         """
+        log.info("Sender thread starting.")
         self.sending = True
         while not self.done:
             if self.outbound:
@@ -98,11 +103,13 @@ class P2P:
                         temp_sock.close()
             sleep(0.1)
         self.sending = False
+        log.info("Sender thread stopped.")
 
     def receiver_handler(self):
         """
         Accepts incoming connections and creates the threads to handle them
         """
+        log.info("Receiver thread starting.")
         self.listening = True
         while not self.done:
             try:
@@ -117,6 +124,7 @@ class P2P:
             except Exception as e:
                 log.error(f"Error accepting the connection: {e}")
         self.listening = False
+        log.info("Receiver thread stopped.")
 
     def handle_connection(self, conn: socket.socket, addr: Addr):
         """
@@ -274,17 +282,18 @@ class Tracker(P2P):
         return TRACKER
 
     def __init__(self, ip, port):
-        super().__init__(ip, port)
+        P2P.__init__(self, ip, port)
 
     def start(self) -> None:
+        log.info("Tracker start process.")
         self.auto_respond_thread: Thread = Thread(
             target=self.responder_thread, daemon=True
         )
         self.auto_respond_thread.start()
-        super().start()
+        P2P.start(self)
 
     def stop(self):
-        super().stop()
+        P2P.stop(self)
         self.auto_respond_thread.join()
 
     def resume(self):
@@ -292,7 +301,7 @@ class Tracker(P2P):
             target=self.responder_thread, daemon=True
         )
         self.auto_respond_thread.start()
-        super().resume()
+        P2P.resume(self)
 
     def announce(self, pkt: DataPacket) -> None:
         """
@@ -342,6 +351,7 @@ class Tracker(P2P):
         Responder thread, which handles repeatedly receiving packets and
         handling them based on type.
         """
+        log.info("Tracker responder thread starting.")
         while not self.done:
             if self.inbound:
                 msg, src = self.inbound.pop(0)
@@ -349,6 +359,7 @@ class Tracker(P2P):
                 self.respond(data, src)
             else:
                 sleep(0.1)
+        log.info("Tracker responder thread stopped.")
 
 
 class Peer(P2P):
@@ -360,7 +371,7 @@ class Peer(P2P):
     """
 
     def __init__(self, ip: str, port: int):
-        super().__init__(ip, port)  # inherit
+        P2P.__init__(self, ip, port)
         self.block = None
         self.provider = MockContentProvider()
 
@@ -373,20 +384,21 @@ class Peer(P2P):
         """
         Start active components of Peer class, including two threads.
         """
+        log.info("Peer start process.")
         self.auto_respond_thread = Thread(
             target=self.responder_thread, daemon=True
         )  # create thread
         self.mine_thread = Thread(target=self.miner_thread, daemon=True)
         self.auto_respond_thread.start()
         self.mine_thread.start()
-        super().start()
+        P2P.start(self)
 
         # initial request
         pkt = PeerListRequestPacket()
         self.send_packet(pkt, self.tracker)
 
     def stop(self):
-        super().stop()
+        P2P.stop(self)
         self.auto_respond_thread.join()
         self.mine_thread.join()
 
@@ -397,7 +409,7 @@ class Peer(P2P):
         self.mine_thread = Thread(target=self.miner_thread, daemon=True)
         self.auto_respond_thread.start()
         self.mine_thread.start()
-        super().resume()
+        P2P.resume(self)
 
     def respond(self, msg: dict, src: Addr) -> None:
         """
@@ -418,7 +430,7 @@ class Peer(P2P):
             self.send_packet(pkt, src)
         elif isinstance(pkt, RedirectPacket):
             # update tracker
-            self.tracker = pkt.data["tracker"]
+            self.set_tracker(pkt.data["tracker"])
             # resend PeerListRequest
             pkt = PeerListRequestPacket()
             self.send_packet(pkt, self.tracker)
@@ -426,7 +438,7 @@ class Peer(P2P):
             # update peer list
             self.peers = set(pkt["peers"])
             # update tracker
-            self.tracker = set(pkt["tracker"])
+            self.set_tracker(pkt.data["tracker"])
         elif isinstance(pkt, AnnouncementPacket):
             # get new chain
             new_chain = pkt["chain"]
@@ -439,13 +451,14 @@ class Peer(P2P):
                     self.block.set_stop_mining(True)
                 # update
                 self.chain = pkt["chain"]
-                self.tracker = pkt["tracker"]
+                self.set_tracker(pkt.data["tracker"])
 
     def responder_thread(self) -> None:
         """
         Responder thread, which handles repeatedly receiving packets and
         handling them based on type.
         """
+        log.info("Peer responder thread starting.")
         while not self.done:
             if self.inbound:
                 msg, src = self.inbound.pop(0)
@@ -453,11 +466,13 @@ class Peer(P2P):
                 self.respond(data, src)
             else:
                 sleep(0.1)
+        log.info("Peer responder thread stopped.")
 
     def miner_thread(self):
         """
         Miner thread, mines block and once found broadcasts to peers.
         """
+        log.info("Miner thread starting.")
         while not self.done:
             # check for chain
             if not self.chain:
@@ -480,7 +495,7 @@ class Peer(P2P):
             # append to chain
             try:
                 self.chain.append(new_block)
-            except ValueError as e:
+            except ValueError:
                 self.mining_block = None
                 continue
             # broadcast Block
@@ -488,6 +503,7 @@ class Peer(P2P):
             self.send_packet(pkt, self.tracker)
             # reset
             self.block = None
+        log.info("Miner thread stopped.")
 
     def state(self) -> int:
         """Test method, returns current state representation int."""
@@ -504,6 +520,16 @@ class TrackerPeer(Tracker, Peer):
         self._state = state
         self.block = None
         self.provider = MockContentProvider()
+        log.info("TrackerPeer created.")
+
+    def set_state(self, state: int) -> None:
+        """
+        Set self state but don't do anything else.
+
+        Used for initial setup.
+        """
+        self._state = state
+        log.info(f"TrackerPeer changing to state {state}.")
 
     def become_peer(self) -> None:
         """
@@ -516,7 +542,7 @@ class TrackerPeer(Tracker, Peer):
         # left and then cleanup.
         self.stop()
         log.info("Transitioning to PEER")
-        self._state = PEER
+        self.set_state(PEER)
         self.resume()
 
     def become_tracker(self) -> None:
@@ -528,7 +554,7 @@ class TrackerPeer(Tracker, Peer):
         """
         self.stop()
         log.info("Transitioning to TRACKER")
-        self._state = TRACKER
+        self.set_state(TRACKER)
         self.resume()
 
     # Sample inheritance
@@ -550,6 +576,7 @@ class TrackerPeer(Tracker, Peer):
 
         Will run the state-appropriate start method.
         """
+        log.info("TrackerPeer starting.")
         if self._state == PEER:
             return Peer.start(self)
         else:
@@ -563,6 +590,7 @@ class TrackerPeer(Tracker, Peer):
 
         This will also be invoked as part of the unified close method.
         """
+        log.info("TrackerPeer stopping.")
         if self._state == PEER:
             return Peer.stop(self)
         else:
@@ -574,6 +602,7 @@ class TrackerPeer(Tracker, Peer):
 
         Will run the state-appropriate resume method.
         """
+        log.info("TrackerPeer resuming.")
         if self._state == PEER:
             return Peer.resume(self)
         else:
