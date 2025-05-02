@@ -83,7 +83,6 @@ class P2P:
                 with self.lock:
                     payload, dest = self.outbound.pop(0)
                 temp_sock = None
-                log.info("Have something to send!")
                 if not dest:
                     # cannot send a dest-less packet; this is possible during
                     # testing if a tracker is not set but we are mining
@@ -115,7 +114,6 @@ class P2P:
         self.listening = True
         while not self.done:
             try:
-                log.info("Listening for conn reqs")
                 conn, addr = self.sock.accept()
                 log.info(f"Received conn from {addr}")
                 Thread(
@@ -161,8 +159,7 @@ class P2P:
                         packet = DataPacket.from_dict(message)
                         with self.lock:
                             self.inbound.append((json.dumps(message).encode(), addr))
-                        log.info(f"Received packet from {addr}: {packet.data}")
-                        print(f"Received complete JSON from {addr}")
+                        log.info(f"Received complete JSON from {addr}")
                     except json.JSONDecodeError:
                         break
         except ConnectionAbortedError:
@@ -263,6 +260,26 @@ class P2P:
         self.stop()
         self.sock.close()
 
+    def responder_thread(self) -> None:
+        """
+        Responder thread, which handles repeatedly receiving packets and
+        handling them based on type.
+
+        This is a *blocking* call.
+        """
+        log.info("Tracker responder thread starting.")
+        while not self.done:
+            if self.inbound:
+                msg, src = self.inbound.pop(0)
+                data = json.loads(msg.decode())
+                self.respond(data, src)
+            else:
+                sleep(0.1)
+        log.info("Tracker responder thread stopped.")
+
+    def respond(self, msg: dict, src: Addr) -> None:
+        raise NotImplementedError("Should not use P2P respond method.")
+
     def send_packet(self, pkt: DataPacket, dst: Addr) -> None:
         """
         Shorthand for sending specifically DataPackets.
@@ -270,8 +287,15 @@ class P2P:
         with self.lock:
             self.outbound.append((pkt.as_bytes(), dst))
 
-    def run(self):
-        raise NotImplementedError()
+    def print_chain(self) -> None:
+        """
+        Pretty print current chain.
+        """
+        if not self.chain:
+            print("No blockchain established.")
+            return
+        assert isinstance(self.chain, BlockChain)
+        print(self.chain.pretty())
 
 
 class Tracker(P2P):
@@ -343,23 +367,6 @@ class Tracker(P2P):
                 # be available to its subclass, TrackerPeer.
                 self.become_peer()
 
-    def responder_thread(self) -> None:
-        """
-        Responder thread, which handles repeatedly receiving packets and
-        handling them based on type.
-
-        This is a *blocking* call.
-        """
-        log.info("Tracker responder thread starting.")
-        while not self.done:
-            if self.inbound:
-                msg, src = self.inbound.pop(0)
-                data = json.loads(msg.decode())
-                self.respond(data, src)
-            else:
-                sleep(0.1)
-        log.info("Tracker responder thread stopped.")
-
 
 class Peer(P2P):
     """
@@ -397,9 +404,9 @@ class Peer(P2P):
         self.mine_thread.join()
 
     def resume(self):
+        P2P.resume(self)
         self.mine_thread = Thread(target=self.miner_thread, daemon=True)
         self.mine_thread.start()
-        P2P.resume(self)
 
     def respond(self, msg: dict, src: Addr) -> None:
         """
@@ -442,23 +449,6 @@ class Peer(P2P):
                 # update
                 self.chain = pkt["chain"]
                 self.set_tracker(pkt.data["tracker"])
-
-    def responder_thread(self) -> None:
-        """
-        Responder thread, which handles repeatedly receiving packets and
-        handling them based on type.
-
-        This is a *blocking* call.
-        """
-        log.info("Peer responder thread starting.")
-        while not self.done:
-            if self.inbound:
-                msg, src = self.inbound.pop(0)
-                data = json.loads(msg.decode())
-                self.respond(data, src)
-            else:
-                sleep(0.1)
-        log.info("Peer responder thread stopped.")
 
     def miner_thread(self):
         """
@@ -600,6 +590,18 @@ class TrackerPeer(Tracker, Peer):
         else:
             return Tracker.resume(self)
 
+    def respond(self, msg: dict, src: Addr) -> None:
+        """
+        Respond to incoming packet as data dict from src.
+
+        Will run the state-appropriate respond method. This is actually how
+        the responding will change depending on state.
+        """
+        if self._state == PEER:
+            return Peer.respond(self, msg, src)
+        else:
+            return Tracker.respond(self, msg, src)
+
     def main_loop(self) -> None:
         """
         Running main loop.
@@ -607,11 +609,18 @@ class TrackerPeer(Tracker, Peer):
         This handles the creation and joining of the other threads, since
         threads cannot join on themselves.
         """
-        log.info("TrackerPeer resuming.")
-        if self._state == PEER:
-            return Peer.responder_thread(self)
-        else:
-            return Tracker.responder_thread(self)
+        log.info("TrackerPeer main loop running.")
+        P2P.responder_thread(self)
+
+
+"""
+TODO:
+
+- DO we actually need to halt the other three threads now? They are *identical*
+  for tracker and peer. The only difference is whether the *miner* thread is
+  running or not, which is a non-trivial difference.
+
+"""
 
 
 if __name__ == "__main__":

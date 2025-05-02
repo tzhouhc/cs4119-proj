@@ -23,6 +23,10 @@ What we have:
 
 - 1 tracker alone would idle.
 - 1 peer would mine but fail to send.
+- 1 tracker and 1 peer, tracker will receive packet and become peer, then try
+  to send packets to peer. Peer does not transform -- I haven't looked to
+  check if it's the announcement did not go through or peer transition logic
+  has issues..
 
 We want to be at a stage where:
 
