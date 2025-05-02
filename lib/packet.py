@@ -51,6 +51,9 @@ class DataPacket:
     def as_bytes(self) -> bytes:
         return json.dumps(self.data).encode()
 
+    def set_src(self, src: Addr) -> None:
+        self.data["src"] = src
+
     @classmethod
     def from_dict(cls, data: dict) -> "DataPacket":
         if "type" not in data:
@@ -58,20 +61,26 @@ class DataPacket:
         dtype = data["type"]
         res = None
         if dtype == PacketType.ANNOUNCEMENT:
-            res = AnnouncementPacket(
-                BlockChain.from_list(data["chain"]), data["tracker"]
-            )
+            tracker = tuple(data["tracker"])
+            res = AnnouncementPacket(BlockChain.from_list(data["chain"]), tracker)
         elif dtype == PacketType.PEER_LIST_REQUEST:
             res = PeerListRequestPacket()
         elif dtype == PacketType.BLOCK_UPDATE:
             res = BlockUpdatePacket(BlockChain.from_list(data["chain"]))
         elif dtype == PacketType.REDIRECT:
-            res = RedirectPacket(data["tracker"])
+            tracker = tuple(data["tracker"])
+            res = RedirectPacket(tracker)
         elif dtype == PacketType.PEER_LIST:
-            res = PeerListPacket(data["tracker"], data["peers"])
+            # tuples don't have a matching rep in json, those are lists, so
+            # we have to revert them
+            tracker = tuple(data["tracker"])
+            peers = [tuple(peer) for peer in data["peers"]]
+            res = PeerListPacket(tracker, peers)
         else:
             raise ValueError("Unknown packet type")
         res.data["timestamp"] = data["timestamp"]
+        if "src" in data:
+            res.data["src"] = data["src"]
         return res
 
 
