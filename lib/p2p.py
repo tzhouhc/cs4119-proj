@@ -1,9 +1,8 @@
 import json
 import socket
-from threading import Thread
+from threading import Lock, Thread
 from time import sleep
 from lib.llm import LLMContentProvider
-
 from lib.blockchain import BlockChain, Block
 from lib.packet import (
     AnnouncementPacket,
@@ -34,6 +33,9 @@ class P2P:
         self.sender_thread: Thread = Thread(target=self.sender_handler, daemon=True)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler, daemon=True)
         self.done = False
+        self.lock = Lock()
+        self.buffer = b""
+        self.decoder = json.JSONDecoder()
 
     def start(self):
         self.sock.bind(self.addr)
@@ -42,25 +44,106 @@ class P2P:
         self.receiver_thread.start()
 
     def sender_handler(self):
+        """
+        Checks the outbound queue and sends messages over TCP
+        """
         while not self.done:
             if self.outbound:
-                payload, conn = self.outbound.pop(0)
-                self.sock.sendto(payload, conn)
+                with self.lock:
+                    payload, dest = self.outbound.pop(0)
+                try:
+                    temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    temp_sock.connect(dest)
+                    temp_sock.sendall(payload)
+                    temp_sock.close()
+                    log.info(f"Sent packet to {dest}")
+                except Exception as e:
+                    log.error(f"Failed to send packet to {dest}: {e}")
             sleep(0.1)
 
     def receiver_handler(self):
+        """
+        Accepts incoming connections and creates the threads to handle them
+        """
         while not self.done:
-            conn, addr = self.sock.accept()
-            result = conn.recv(1024)
-            self.inbound += [(result, addr)]
+            try:
+                conn, addr = self.sock.accept()
+                Thread(
+                    target=self.handle_connection, args=(conn, addr), daemon=True
+                ).start()
+            except Exception as e:
+                log.error(f"Error accepting the connection: {e}")
+
+    def handle_connection(self, conn: socket.socket, addr: Addr):
+        """
+        Handles the incoming socket connection and buffers the incoming data
+        until complete JSON received
+
+        Parameters:
+            conn : socket.socket
+                The accepted socket connection from a peer.
+            addr : Addr
+                The address tuple (IP, port) of the connected peer.
+
+        Returns:
+            None
+        """
+        try:
+            buffer = b""
+            while not self.done:
+                data = conn.recv(4096)
+                if not data:
+                    break
+                buffer += data
+                while True:
+                    try:
+                        decoded = buffer.decode()
+                        message, idx = self.decoder.raw_decode(decoded)
+                        remaining = decoded[idx:].lstrip()
+                        buffer = remaining.encode()
+                        packet = DataPacket.from_dict(message)
+                        with self.lock:
+                            self.inbound.append((json.dumps(message).encode(), addr))
+                        log.info(f"Received packet from {addr}: {packet.data}")
+                        print(f"Received complete JSON from {addr}")
+                    except json.JSONDecodeError:
+                        break
+        except Exception as e:
+            log.error(f"Error handling connection from {addr}: {e}")
+        finally:
             conn.close()
-            sleep(0.1)
 
     def pack(self, data: dict) -> bytes:
+        """
+        Encodes a Python dict into a JSON formatted byte string
+
+        Parameters:
+            data : dict
+                The dictionary to encode
+
+        Returns:
+            bytes
+                The encoded JSON byte string
+
+        """
         return json.dumps(data).encode()
 
     def sendto(self, payload: bytes, dest: Addr) -> None:
-        self.outbound.append((payload, dest))
+        """
+        Adds a packet to the outbound queue to be sent by the sender thread
+
+        Parameters:
+            payload : bytes
+                The JSON-encoded payload to send
+            dest : Addr
+                The destination address tuple (IP, port)
+
+        Returns:
+            None
+        """
+        with self.lock:
+            self.outbound.append((payload, dest))
+        log.info(f"Queued packet to {dest}: {payload}")
 
     def close(self):
         self.done = True
@@ -77,8 +160,6 @@ class Tracker(P2P):
     list.
     On receiving DROP notice, remove peer from list.
     """
-
-    ...
 
 
 class Peer(P2P):
@@ -198,4 +279,10 @@ class Peer(P2P):
             # reset
             self.block = None
 
-    ...
+
+if __name__ == "__main__":
+    server = P2P("127.0.0.1", 65432)
+    server.start()
+    print(f"Server listening on {server.addr}")
+    while True:
+        pass
