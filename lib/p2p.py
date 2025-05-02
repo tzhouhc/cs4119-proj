@@ -73,42 +73,61 @@ class P2P:
         self.sender_thread.start()
         self.receiver_thread.start()
 
+    def do_send(self) -> None:
+        """
+        Send one item from outbound queue if any. Expects the operation to be
+        done while under lock due to writes to outbound queue.
+
+        Creates a temporary socket for the purpose.
+        """
+        if self.outbound:
+            payload, dest = self.outbound.pop(0)
+            temp_sock = None
+            if not dest:
+                # cannot send a dest-less packet; this is possible during
+                # testing if a tracker is not set but we are mining
+                return
+            try:
+                temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                temp_sock.connect(dest)
+                temp_sock.sendall(payload)
+                self.log.info(f"Sent packet to {dest}")
+            except ConnectionAbortedError:
+                self.log.debug("Connected aborted presumably due to close.")
+            except TimeoutError:
+                self.log.debug("Connected timed out.")
+            except Exception as e:
+                self.log.error(f"Failed to send packet to {dest}: {e}")
+            finally:
+                if temp_sock:
+                    temp_sock.close()
+
     def sender_handler(self):
         """
-        Checks the outbound queue and sends messages over TCP
+        Checks the outbound queue and sends messages over TCP.
+
+        Will keep sending until the `done` flag is up, at which point it will
+        lock the input queue and start exiting. Further entries can be added
+        to the queue *after* but won't be sent until new sender thread starts.
         """
         self.log.info("Sender thread starting.")
         self.sending = True
         while not self.done:
-            if self.outbound:
-                with self.lock:
-                    payload, dest = self.outbound.pop(0)
-                temp_sock = None
-                if not dest:
-                    # cannot send a dest-less packet; this is possible during
-                    # testing if a tracker is not set but we are mining
-                    continue
-                try:
-                    temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    temp_sock.connect(dest)
-                    temp_sock.sendall(payload)
-                    self.log.info(f"Sent packet to {dest}")
-                except ConnectionAbortedError:
-                    self.log.debug("Connected aborted presumably due to close.")
-                except TimeoutError:
-                    self.log.debug("Connected timed out.")
-                except Exception as e:
-                    self.log.error(f"Failed to send packet to {dest}: {e}")
-                finally:
-                    if temp_sock:
-                        temp_sock.close()
+            # during normal operation: acquire lock, send, unlock
+            with self.lock:
+                self.do_send()
             sleep(0.1)
+        # during stopping phase: lock, send all that is left, stop. No more
+        # items can be inserted during this period.
+        with self.lock:
+            while self.outbound:
+                self.do_send()
         self.sending = False
         self.log.info("Sender thread stopped.")
 
     def receiver_handler(self):
         """
-        Accepts incoming connections and creates the threads to handle them
+        Accepts incoming connections and creates the threads to handle them.
         """
         self.log.info("Receiver thread starting.")
         self.listening = True
@@ -183,23 +202,6 @@ class P2P:
         """
         return json.dumps(data).encode()
 
-    def sendto(self, payload: bytes, dest: Addr) -> None:
-        """
-        Adds a packet to the outbound queue to be sent by the sender thread
-
-        Parameters:
-            payload : bytes
-                The JSON-encoded payload to send
-            dest : Addr
-                The destination address tuple (IP, port)
-
-        Returns:
-            None
-        """
-        with self.lock:
-            self.outbound.append((payload, dest))
-        self.log.info(f"Queued packet to {dest}: {payload}")
-
     def stop(self) -> None:
         """
         Terminate current activities. Maintain current port.
@@ -211,8 +213,6 @@ class P2P:
         Returns:
             None
         """
-        while any([self.inbound, self.outbound]):
-            sleep(0.01)
         self.done = True
         self.receiver_thread.join()
         self.sender_thread.join()
