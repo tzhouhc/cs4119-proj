@@ -38,7 +38,8 @@ class P2P:
         self.outbound: list[Packet] = []
         self.inbound: list[Packet] = []
         self.chain = None
-        self.done = False
+        self.done = False  # done for now -- stopping current activities
+        self.terminated = False  # lifecycle over
         self.lock = Lock()
         self.buffer = b""
         self.decoder = json.JSONDecoder()
@@ -87,7 +88,6 @@ class P2P:
                     # cannot send a dest-less packet; this is possible during
                     # testing if a tracker is not set but we are mining
                     continue
-                self.log.info(f"Preparing to send to {dest}")
                 try:
                     temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     temp_sock.connect(dest)
@@ -115,7 +115,6 @@ class P2P:
         while not self.done:
             try:
                 conn, addr = self.sock.accept()
-                self.log.info(f"Received conn from {addr}")
                 Thread(
                     target=self.handle_connection, args=(conn, addr), daemon=True
                 ).start()
@@ -142,7 +141,6 @@ class P2P:
         Returns:
             None
         """
-        self.log.info(f"Handling connection from {addr}")
         try:
             buffer = b""
             while not self.done:
@@ -159,7 +157,6 @@ class P2P:
                         packet = DataPacket.from_dict(message)
                         with self.lock:
                             self.inbound.append((json.dumps(message).encode(), addr))
-                        self.log.info(f"Received complete JSON from {addr}")
                     except json.JSONDecodeError:
                         break
         except ConnectionAbortedError:
@@ -214,6 +211,8 @@ class P2P:
         Returns:
             None
         """
+        while any([self.inbound, self.outbound]):
+            sleep(0.01)
         self.done = True
         self.receiver_thread.join()
         self.sender_thread.join()
@@ -258,6 +257,7 @@ class P2P:
             None
         """
         self.stop()
+        self.terminated = True
         self.sock.close()
 
     def responder_thread(self) -> None:
@@ -268,7 +268,7 @@ class P2P:
         This is a *blocking* call.
         """
         self.log.info("Responder thread starting.")
-        while not self.done:
+        while not self.terminated:
             if self.inbound:
                 msg, src = self.inbound.pop(0)
                 data = json.loads(msg.decode())
@@ -284,6 +284,8 @@ class P2P:
         """
         Shorthand for sending specifically DataPackets.
         """
+        self.log.info(f"Sending {pkt.__class__} to {dst}")
+        pkt.set_src(self.addr)
         with self.lock:
             self.outbound.append((pkt.as_bytes(), dst))
 
@@ -339,6 +341,8 @@ class Tracker(P2P):
         Actual responding method that takes data dict, interpret as a
         DataPacket, then appropriately validate and respond to it, performing
         any state changes in the process as necessary.
+
+        The `src` param is actually the temp socket.
         """
         pkt = None
         try:
@@ -346,11 +350,14 @@ class Tracker(P2P):
         except ValueError as e:
             self.log.warning(f"Failed to interpret packet: {e}")
         # valid packet, add peer to list
-        self.peers.add(src)
+        assert pkt is not None
+        sip, sport = tuple(pkt.src)
+        true_src = (sip, sport)
+        self.peers.add(true_src)
         if isinstance(pkt, PeerListRequestPacket):
             # no validation necessary -- just respond
             resp = PeerListPacket(self.addr, self.get_peers())
-            self.send_packet(resp, src)
+            self.send_packet(resp, true_src)
         elif isinstance(pkt, BlockUpdatePacket):
             # validate block
             c: BlockChain = BlockChain.from_list(pkt.chain)
@@ -361,11 +368,24 @@ class Tracker(P2P):
                 self.chain = c
             if self.chain != cur_c:
                 # promote sender of updated chain as new tracker
-                resp = AnnouncementPacket(self.chain, src)
+                resp = AnnouncementPacket(self.chain, true_src)
                 self.announce(resp)
                 # this function is unimplemented in the Tracker class, but will
                 # be available to its subclass, TrackerPeer.
+                self.set_tracker(true_src)
                 self.become_peer()
+        elif isinstance(pkt, AnnouncementPacket):
+            # get new chain
+            new_chain = BlockChain.from_list(pkt["chain"])
+            # check if valid
+            if not new_chain.is_valid():  # invalid chain
+                return
+            else:
+                # update
+                self.chain = new_chain
+                self.set_tracker(pkt.data["tracker"])
+                if self.tracker != self.addr:
+                    self.become_peer()
 
 
 class Peer(P2P):
@@ -408,6 +428,9 @@ class Peer(P2P):
         self.mine_thread = Thread(target=self.miner_thread, daemon=True)
         self.mine_thread.start()
 
+    def become_tracker(self) -> None:
+        raise NotImplementedError("Peer does not have become_tracker implemented.")
+
     def respond(self, msg: dict, src: Addr) -> None:
         """
         Actual responding method that takes data dict, interpret as a
@@ -421,10 +444,15 @@ class Peer(P2P):
         except ValueError as e:
             self.log.warning(f"Failed to interpret packet: {e}")
         # valid packet, respond
+        assert pkt is not None
+        sip, sport = tuple(pkt.src)
+        true_src = (sip, sport)
+        self.peers.add(true_src)
+        self.log.info(f"Received {pkt.__class__} from {true_src}")
         if isinstance(pkt, PeerListRequestPacket) or isinstance(pkt, BlockUpdatePacket):
             # send redirect
             pkt = RedirectPacket(self.tracker)
-            self.send_packet(pkt, src)
+            self.send_packet(pkt, true_src)
         elif isinstance(pkt, RedirectPacket):
             # update tracker
             self.set_tracker(pkt.data["tracker"])
@@ -438,7 +466,7 @@ class Peer(P2P):
             self.set_tracker(pkt.data["tracker"])
         elif isinstance(pkt, AnnouncementPacket):
             # get new chain
-            new_chain = pkt["chain"]
+            new_chain = BlockChain.from_list(pkt["chain"])
             # check if valid
             if not new_chain.is_valid():  # invalid chain
                 return
@@ -447,8 +475,10 @@ class Peer(P2P):
                 if self.block:
                     self.block.set_stop_mining(True)
                 # update
-                self.chain = pkt["chain"]
+                self.chain = new_chain
                 self.set_tracker(pkt.data["tracker"])
+                if self.tracker == self.addr:
+                    self.become_tracker()
 
     def miner_thread(self):
         """
