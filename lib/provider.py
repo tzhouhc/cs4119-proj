@@ -1,3 +1,6 @@
+from time import sleep
+
+
 class ContentProvider:
     def __init__(self) -> None:
         pass
@@ -12,4 +15,5 @@ class MockContentProvider(ContentProvider):
 
     def generate(self, input: dict) -> str:
         self.count += 1
+        sleep(1)
         return f"This is the {self.count}th generated sentence."
