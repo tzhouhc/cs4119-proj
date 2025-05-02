@@ -39,7 +39,6 @@ class P2P:
         self.inbound: list[Packet] = []
         self.chain = None
         self.done = False
-        self.stopped = False
         self.lock = Lock()
         self.buffer = b""
         self.decoder = json.JSONDecoder()
@@ -66,7 +65,6 @@ class P2P:
         Returns:
             None
         """
-        self.stopped = False
         self.sender_thread: Thread = Thread(target=self.sender_handler)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler)
         self.sock.bind(self.addr)
@@ -228,7 +226,6 @@ class P2P:
             self.inbound = []
             self.outbound = []
             self.buffer = b""
-        self.stopped = True
 
     def resume(self) -> None:
         """
@@ -246,7 +243,6 @@ class P2P:
         self.decoder = json.JSONDecoder()
         """
         self.done = False
-        self.stopped = False
         self.sender_thread: Thread = Thread(target=self.sender_handler)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler)
         self.sender_thread.start()
@@ -296,23 +292,12 @@ class Tracker(P2P):
 
     def start(self) -> None:
         log.info("Tracker start process.")
-        self.auto_respond_thread: Thread = Thread(
-            target=self.responder_thread, daemon=True
-        )
-        self.auto_respond_thread.start()
         P2P.start(self)
 
     def stop(self):
         P2P.stop(self)
-        while not self.stopped:
-            sleep(0.001)
-        self.auto_respond_thread.join()
 
     def resume(self):
-        self.auto_respond_thread: Thread = Thread(
-            target=self.responder_thread, daemon=True
-        )
-        self.auto_respond_thread.start()
         P2P.resume(self)
 
     def announce(self, pkt: DataPacket) -> None:
@@ -362,6 +347,8 @@ class Tracker(P2P):
         """
         Responder thread, which handles repeatedly receiving packets and
         handling them based on type.
+
+        This is a *blocking* call.
         """
         log.info("Tracker responder thread starting.")
         while not self.done:
@@ -397,11 +384,7 @@ class Peer(P2P):
         Start active components of Peer class, including two threads.
         """
         log.info("Peer start process.")
-        self.auto_respond_thread = Thread(
-            target=self.responder_thread, daemon=True
-        )  # create thread
         self.mine_thread = Thread(target=self.miner_thread, daemon=True)
-        self.auto_respond_thread.start()
         self.mine_thread.start()
         P2P.start(self)
 
@@ -411,17 +394,10 @@ class Peer(P2P):
 
     def stop(self):
         P2P.stop(self)
-        while not self.stopped:
-            sleep(0.001)
-        self.auto_respond_thread.join()
         self.mine_thread.join()
 
     def resume(self):
-        self.auto_respond_thread = Thread(
-            target=self.responder_thread, daemon=True
-        )  # create thread
         self.mine_thread = Thread(target=self.miner_thread, daemon=True)
-        self.auto_respond_thread.start()
         self.mine_thread.start()
         P2P.resume(self)
 
@@ -471,6 +447,8 @@ class Peer(P2P):
         """
         Responder thread, which handles repeatedly receiving packets and
         handling them based on type.
+
+        This is a *blocking* call.
         """
         log.info("Peer responder thread starting.")
         while not self.done:
@@ -555,8 +533,6 @@ class TrackerPeer(Tracker, Peer):
         # first, halt all processing threads; they should finish what they have
         # left and then cleanup.
         self.stop()
-        while not self.stopped:
-            sleep(0.001)
         log.info("Transitioning to PEER")
         self.set_state(PEER)
         self.resume()
@@ -569,8 +545,6 @@ class TrackerPeer(Tracker, Peer):
         switch state, then start new ones. Maintains self state otherwise.
         """
         self.stop()
-        while not self.stopped:
-            sleep(0.001)
         log.info("Transitioning to TRACKER")
         self.set_state(TRACKER)
         self.resume()
@@ -625,6 +599,19 @@ class TrackerPeer(Tracker, Peer):
             return Peer.resume(self)
         else:
             return Tracker.resume(self)
+
+    def main_loop(self) -> None:
+        """
+        Running main loop.
+
+        This handles the creation and joining of the other threads, since
+        threads cannot join on themselves.
+        """
+        log.info("TrackerPeer resuming.")
+        if self._state == PEER:
+            return Peer.responder_thread(self)
+        else:
+            return Tracker.responder_thread(self)
 
 
 if __name__ == "__main__":

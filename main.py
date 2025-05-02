@@ -1,5 +1,4 @@
 from argparse import ArgumentParser
-from time import sleep
 
 from lib.p2p import PEER, TRACKER, TrackerPeer
 
@@ -31,7 +30,7 @@ def main():
         agent.set_tracker((args.tip, args.tport))
         agent.set_state(PEER)
     agent.start()
-    sleep(30)
+    agent.main_loop()
     agent.close()
 
 
