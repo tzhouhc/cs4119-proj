@@ -62,12 +62,14 @@ class TestTrackerPeerConversion(unittest.TestCase):
         """Numbered tests, start from here as default, i.e. peer."""
         self.assertIsPeer()
         self.tp.become_tracker()
+        sleep(0.2)
         self.assertIsTracker()
 
     def test_01_state_change_02(self):
         """Test class instance should remain since last test."""
         self.assertIsTracker()
         self.tp.become_peer()
+        sleep(0.2)
         self.assertIsPeer()
 
     def test_02_restart_01(self):
@@ -75,6 +77,7 @@ class TestTrackerPeerConversion(unittest.TestCase):
         self.assertIsPeer()
         self.assertThreadsActive()
         self.tp.stop()
+        sleep(0.2)
         self.assertThreadsInactive()
         self.tp.resume()
         self.assertThreadsActive()
@@ -84,6 +87,7 @@ class TestTrackerPeerConversion(unittest.TestCase):
         """Stopping, changing state and restarting should update."""
         self.assertThreadsActive()
         self.tp.stop()
+        sleep(0.2)
         cur_state = self.tp.state()
         if self.tp.state() == 0:
             self.tp._state = 1
@@ -102,6 +106,7 @@ class TestTrackerPeerConversion(unittest.TestCase):
             self.tp.become_tracker()
         else:
             self.tp.become_peer()
+        sleep(0.2)
         self.assertThreadsActive()
 
     @classmethod
