@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 
-from lib.p2p import PEER, TRACKER, TrackerPeer
+from lib.p2p import P2P, PEER, TRACKER, TrackerPeer
+from lib.utils import arg_verbosity
 
 
 def arg_parser() -> ArgumentParser:
@@ -21,6 +22,8 @@ def arg_parser() -> ArgumentParser:
 
 def main():
     args = arg_parser().parse_args()
+    vb = arg_verbosity(args.verbose)
+    P2P.log.setLevel(vb)
     agent = TrackerPeer(args.ip, args.port)
     if args.ip == args.tip and args.port == args.tport:
         print(f"Creating tracker at {args.ip}:{args.port}.")

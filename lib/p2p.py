@@ -91,11 +91,11 @@ class P2P:
                 temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 temp_sock.connect(dest)
                 temp_sock.sendall(payload)
-                self.log.info(f"Sent packet to {dest}")
+                self.log.debug(f"Sent packet to {dest}")
             except ConnectionAbortedError:
                 self.log.debug("Connected aborted presumably due to close.")
             except TimeoutError:
-                self.log.debug("Connected timed out.")
+                pass
             except Exception as e:
                 self.log.error(f"Failed to send packet to {dest}: {e}")
             finally:
@@ -140,7 +140,7 @@ class P2P:
             except ConnectionAbortedError:
                 self.log.debug("Connected aborted presumably due to close.")
             except TimeoutError:
-                self.log.debug("Connected timed out.")
+                pass
             except Exception as e:
                 self.log.error(f"Error accepting the connection: {e}")
         self.listening = False
@@ -173,7 +173,6 @@ class P2P:
                         message, idx = self.decoder.raw_decode(decoded)
                         remaining = decoded[idx:].lstrip()
                         buffer = remaining.encode()
-                        packet = DataPacket.from_dict(message)
                         with self.lock:
                             self.inbound.append((json.dumps(message).encode(), addr))
                     except json.JSONDecodeError:
@@ -181,7 +180,7 @@ class P2P:
         except ConnectionAbortedError:
             self.log.debug("Connected aborted presumably due to close.")
         except TimeoutError:
-            self.log.debug("Connected timed out.")
+            pass
         except Exception as e:
             self.log.error(f"Error handling connection from {addr}: {e}")
         finally:
@@ -284,7 +283,7 @@ class P2P:
         """
         Shorthand for sending specifically DataPackets.
         """
-        self.log.info(f"Sending {pkt.__class__} to {dst}")
+        self.log.debug(f"Sending {pkt.__class__} to {dst}")
         pkt.set_src(self.addr)
         with self.lock:
             self.outbound.append((pkt.as_bytes(), dst))
@@ -317,7 +316,7 @@ class Tracker(P2P):
         P2P.__init__(self, ip, port)
 
     def start(self) -> None:
-        self.log.info("Tracker start process.")
+        self.log.debug("Tracker start process.")
         P2P.start(self)
 
     def stop(self):
@@ -410,7 +409,7 @@ class Peer(P2P):
         """
         Start active components of Peer class, including two threads.
         """
-        self.log.info("Peer start process.")
+        self.log.debug("Peer start process.")
         self.mine_thread = Thread(target=self.miner_thread, daemon=True)
         self.mine_thread.start()
         P2P.start(self)
@@ -448,7 +447,7 @@ class Peer(P2P):
         sip, sport = tuple(pkt.src)
         true_src = (sip, sport)
         self.peers.add(true_src)
-        self.log.info(f"Received {pkt.__class__} from {true_src}")
+        self.log.debug(f"Received {pkt.__class__} from {true_src}")
         if isinstance(pkt, PeerListRequestPacket) or isinstance(pkt, BlockUpdatePacket):
             # send redirect
             pkt = RedirectPacket(self.tracker)
@@ -541,7 +540,7 @@ class TrackerPeer(Tracker, Peer):
         Used for initial setup.
         """
         self._state = state
-        self.log.info(f"TrackerPeer changing to state {state}.")
+        self.log.debug(f"TrackerPeer changing to state {state}.")
 
     def become_peer(self) -> None:
         """

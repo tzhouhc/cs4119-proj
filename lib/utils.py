@@ -61,16 +61,10 @@ def setup_logger(verbosity: int, name=None) -> logging.Logger:
         name = __name__
     logger = logging.getLogger(name)
     # Set the logging level based on verbosity
-    if verbosity == 0:
-        level = logging.WARNING
-    elif verbosity == 1:
-        level = logging.INFO
-    else:
-        level = logging.DEBUG
+    level = arg_verbosity(verbosity)
     logger.setLevel(level)
     # Create a console handler and set its level
     ch = logging.StreamHandler(sys.stderr)
-    ch.setLevel(level)
     # Create a formatter
     formatter = logging.Formatter(LOGFMT, datefmt=DATEFMT)
     # Add formatter to ch
@@ -78,3 +72,14 @@ def setup_logger(verbosity: int, name=None) -> logging.Logger:
     # Add ch to logger
     logger.addHandler(ch)
     return logger
+
+
+def arg_verbosity(verbosity: int):
+    level = logging.NOTSET
+    if verbosity == 0:
+        level = logging.WARNING
+    elif verbosity == 1:
+        level = logging.INFO
+    else:
+        level = logging.DEBUG
+    return level
