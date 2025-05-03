@@ -476,7 +476,8 @@ class Peer(P2P):
                 if self.block:
                     self.block.set_stop_mining(True)
                 # update
-                self.chain = new_chain
+                if new_chain > self.chain:
+                    self.chain = new_chain
                 self.set_tracker(pkt.data["tracker"])
                 if self.tracker == self.addr:
                     self.become_tracker()
