@@ -1,6 +1,6 @@
 # CS4119 Project Readme
 
-Team 35
+Team 34
 
 ## Dev
 
@@ -41,9 +41,12 @@ To run all tests under `test`.
 
 ## Usage
 
-(TODO)
-
+Run `./run_network.sh` in TMUX will create 4 splits with 1 (initial) tracker
+and 3 peers. Any CLI args to the script will be passed to the `main.py` that it
+invokes, e.g. `-v` for logging and `--llm` to activate LLM story writing.
 
 ## Credits
 
-(TODO)
+Library used:
+- OpenAI library for interacting with the ChatGPT LLM endpoints.
+- Standard library for various networking, hashing and general capabilities.

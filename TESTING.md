@@ -19,16 +19,22 @@ python3 main.py 0.0.0.0 50001 0.0.0.0 50000
 
 This should give some amount of (excessive) logging.
 
+By default, the peers are initialized with a Mock content provider that,
+instead of trying to write a meaningful story, just outputs a counter after a
+random delay to mimic the uncertain nature of LLMs.
+
 What we have:
 
-- 1 tracker alone would idle.
-- 1 peer would mine but fail to send.
-- 1 tracker and 1 peer, tracker will receive packet and become peer, then try
-  to send packets to peer. Peer does not transform -- I haven't looked to
-  check if it's the announcement did not go through or peer transition logic
-  has issues..
+- 1 peer and 1 tracker constantly alternate incrementing the block chain as
+  expected.
+- 3 peer and 1 tracker have a fun event. That said, it's a bit too costly to
+  _test_ with actual LLM backing too, so we're usually just testing with empty
+  content.
 
-We want to be at a stage where:
+What we do not have:
+- Handling dropped peers
 
-- 1 peer and 1 tracker should constantly alternate incrementing the block chain.
-- 3 peer and 1 tracker should have a fun event.
+Notes:
+- Sometimes a node can get two blocks sent before being told to stop mining --
+  this is normal since the node mines greedily and would not stop even after
+  sending out a block for review.
