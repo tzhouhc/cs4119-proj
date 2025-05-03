@@ -1,3 +1,4 @@
+from random import random
 from time import sleep
 
 
@@ -15,5 +16,5 @@ class MockContentProvider(ContentProvider):
 
     def generate(self, input: dict) -> str:
         self.count += 1
-        sleep(1)
-        return f"This is the {self.count}th generated sentence."
+        sleep(random() * 2)
+        return f"The {self.count}th generated sentence."

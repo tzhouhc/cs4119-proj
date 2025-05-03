@@ -371,6 +371,7 @@ class Tracker(P2P):
                 self.announce(resp)
                 # this function is unimplemented in the Tracker class, but will
                 # be available to its subclass, TrackerPeer.
+                self.print_chain()
                 self.set_tracker(true_src)
                 self.become_peer()
         elif isinstance(pkt, AnnouncementPacket):
