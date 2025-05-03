@@ -38,15 +38,13 @@ class P2P:
         self.outbound: list[Packet] = []
         self.inbound: list[Packet] = []
         self.chain = None
-        self.done = False  # done for now -- stopping current activities
+        self.mine = True
+        self.send = True
+        self.receive = True
         self.terminated = False  # lifecycle over
         self.inlock = Lock()
         self.outlock = Lock()
         self.decoder = json.JSONDecoder()
-        # --- info flags; if we need to do some conditional signals they could
-        # be of some use too?
-        self.listening = False
-        self.sending = False
 
     def set_tracker(self, tracker: Addr):
         """Set tracker to specified addr."""
@@ -66,6 +64,9 @@ class P2P:
         Returns:
             None
         """
+        self.send = True
+        self.receive = True
+        self.mine = True
         self.sender_thread: Thread = Thread(target=self.sender_handler)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler)
         self.sock.bind(self.addr)
@@ -111,18 +112,17 @@ class P2P:
         to the queue *after* but won't be sent until new sender thread starts.
         """
         self.log.info("Sender thread starting.")
-        self.sending = True
-        while not self.done:
+        while self.send:
             # during normal operation: acquire lock, send, unlock
             with self.outlock:
                 self.do_send()
             sleep(0.1)
+        self.log.info("Sender pending closure.")
         # during stopping phase: lock, send all that is left, stop. No more
         # items can be inserted during this period.
         with self.outlock:
             while self.outbound:
                 self.do_send()
-        self.sending = False
         self.log.info("Sender thread stopped.")
 
     def receiver_handler(self):
@@ -130,8 +130,7 @@ class P2P:
         Accepts incoming connections and creates the threads to handle them.
         """
         self.log.info("Receiver thread starting.")
-        self.listening = True
-        while not self.done:
+        while self.receive:
             try:
                 conn, addr = self.sock.accept()
                 Thread(
@@ -143,7 +142,6 @@ class P2P:
                 pass
             except Exception as e:
                 self.log.error(f"Error accepting the connection: {e}")
-        self.listening = False
         self.log.info("Receiver thread stopped.")
 
     def handle_connection(self, conn: socket.socket, addr: Addr):
@@ -162,7 +160,7 @@ class P2P:
         """
         try:
             buffer = b""
-            while not self.done:
+            while self.receive:
                 data = conn.recv(4096)
                 if not data:
                     break
@@ -212,9 +210,11 @@ class P2P:
         Returns:
             None
         """
-        self.done = True
-        self.receiver_thread.join()
+        self.mine = False
+        self.send = False
         self.sender_thread.join()
+        self.receive = False
+        self.receiver_thread.join()
         with self.inlock:
             # TODO: consider adopting separate locks for in/out. Buffer can
             # stick with in.
@@ -238,7 +238,9 @@ class P2P:
         self.outlock
         self.decoder = json.JSONDecoder()
         """
-        self.done = False
+        self.mine = True
+        self.send = True
+        self.receive = True
         self.sender_thread: Thread = Thread(target=self.sender_handler)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler)
         self.sender_thread.start()
@@ -487,7 +489,7 @@ class Peer(P2P):
         Miner thread, mines block and once found broadcasts to peers.
         """
         self.log.info("Miner thread starting.")
-        while not self.done:
+        while self.mine:
             # check for chain
             if not self.chain:
                 self.chain = BlockChain()

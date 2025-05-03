@@ -43,14 +43,12 @@ class TestTrackerPeerConversion(unittest.TestCase):
     # ----
 
     def assertThreadsActive(self):
-        self.assertTrue(self.tp.listening)
-        self.assertTrue(self.tp.sending)
-        self.assertFalse(self.tp.done)
+        self.assertTrue(self.tp.receive)
+        self.assertTrue(self.tp.send)
 
     def assertThreadsInactive(self):
-        self.assertFalse(self.tp.listening)
-        self.assertFalse(self.tp.sending)
-        self.assertTrue(self.tp.done)
+        self.assertFalse(self.tp.receive)
+        self.assertFalse(self.tp.send)
 
     def assertIsPeer(self):
         self.assertEqual(self.tp.state(), PEER)
