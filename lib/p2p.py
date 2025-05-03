@@ -51,7 +51,19 @@ class P2P:
         self.tracker = tracker
 
     def get_peers(self) -> list[Addr]:
+        """Return current list of peers"""
         return list(self.peers)
+
+    def history(self) -> list[str]:
+        """
+        Retrieve all payloads from blockchain as a list of str.
+
+        Returns empty list if no blockchain exists.
+        """
+        if not self.chain:
+            return []
+        assert isinstance(self.chain, BlockChain)
+        return [b.payload.decode() for b in self.chain]
 
     def start(self) -> None:
         """
@@ -503,7 +515,7 @@ class Peer(P2P):
                 prev_hash = tail.hash
             else:
                 prev_hash = ""
-            content = self.provider.generate({})  # TODO: history
+            content = self.provider.generate(self.history())
             new_block = Block(content.encode(), prev_hash)
             self.mining_block = new_block
             # mine Block

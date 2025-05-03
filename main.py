@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 
+from lib.llm import LLMContentProvider
 from lib.p2p import P2P, PEER, TRACKER, TrackerPeer
 from lib.utils import arg_verbosity
 
@@ -17,6 +18,9 @@ def arg_parser() -> ArgumentParser:
         default=0,
         help="Increase verbosity (can be used multiple times)",
     )
+    parser.add_argument(
+        "--llm", action="store_true", help="Use actual LLM content provider."
+    )
     return parser
 
 
@@ -25,6 +29,8 @@ def main():
     vb = arg_verbosity(args.verbose)
     P2P.log.setLevel(vb)
     agent = TrackerPeer(args.ip, args.port)
+    if args.llm:
+        agent.set_provider(LLMContentProvider())
     if args.ip == args.tip and args.port == args.tport:
         print(f"Creating tracker at {args.ip}:{args.port}.")
         agent.set_state(TRACKER)

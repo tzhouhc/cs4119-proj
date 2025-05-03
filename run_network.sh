@@ -24,11 +24,20 @@ split_and_run() {
 }
 
 # initial tracker
-split_and_run "python3 main.py 0.0.0.0 50000 0.0.0.0 50000 $@"
-sleep 0.1
-split_and_run "python3 main.py 0.0.0.0 50001 0.0.0.0 50000 $@"
-split_and_run "python3 main.py 0.0.0.0 50002 0.0.0.0 50000 $@"
-split_and_run "python3 main.py 0.0.0.0 50003 0.0.0.0 50000 $@"
+if type uv &>/dev/null; then
+  split_and_run "uv run python3 main.py 0.0.0.0 50000 0.0.0.0 50000 $@"
+  sleep 0.1
+  split_and_run "uv run python3 main.py 0.0.0.0 50001 0.0.0.0 50000 $@"
+  split_and_run "uv run python3 main.py 0.0.0.0 50002 0.0.0.0 50000 $@"
+  split_and_run "uv run python3 main.py 0.0.0.0 50003 0.0.0.0 50000 $@"
+else
+  split_and_run "python3 main.py 0.0.0.0 50000 0.0.0.0 50000 $@"
+  sleep 0.1
+  split_and_run "python3 main.py 0.0.0.0 50001 0.0.0.0 50000 $@"
+  split_and_run "python3 main.py 0.0.0.0 50002 0.0.0.0 50000 $@"
+  split_and_run "python3 main.py 0.0.0.0 50003 0.0.0.0 50000 $@"
+fi
+
 
 # Return focus to the original pane
 tmux select-pane -t "$CURRENT_PANE"

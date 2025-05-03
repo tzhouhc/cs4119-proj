@@ -90,7 +90,7 @@ class Block:
         return self.get_hash() == self.hash
 
     def pretty(self) -> str:
-        content = self.payload if len(self.payload) <= 20 else self.payload[:8]
+        content = self.payload
         hash = self.hash[:8]
         return f"Block[{blue(hash)}, {green(content)}]"
 
