@@ -377,18 +377,22 @@ class Tracker(P2P):
                 self.print_chain()
                 self.set_tracker(true_src)
                 self.become_peer()
+
+        # *WHY* would a tracker receive an ann? Presumably someone else got
+        # mistakenly elected.
         elif isinstance(pkt, AnnouncementPacket):
             # get new chain
             new_chain = BlockChain.from_list(pkt["chain"])
             # check if valid
             if not new_chain.is_valid():  # invalid chain
                 return
-            else:
-                # update
+            # update
+            if not self.chain or new_chain > self.chain:
                 self.chain = new_chain
-                self.set_tracker(pkt.data["tracker"])
-                if self.tracker != self.addr:
-                    self.become_peer()
+            self.set_tracker(pkt.data["tracker"])
+            # cooperative yield
+            if self.tracker != self.addr:
+                self.become_peer()
 
 
 class Peer(P2P):
@@ -478,7 +482,7 @@ class Peer(P2P):
                 if self.block:
                     self.block.set_stop_mining(True)
                 # update
-                if new_chain > self.chain:
+                if not self.chain or new_chain > self.chain:
                     self.chain = new_chain
                 self.set_tracker(pkt.data["tracker"])
                 if self.tracker == self.addr:
