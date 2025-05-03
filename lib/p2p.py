@@ -40,8 +40,8 @@ class P2P:
         self.chain = None
         self.done = False  # done for now -- stopping current activities
         self.terminated = False  # lifecycle over
-        self.lock = Lock()
-        self.buffer = b""
+        self.inlock = Lock()
+        self.outlock = Lock()
         self.decoder = json.JSONDecoder()
         # --- info flags; if we need to do some conditional signals they could
         # be of some use too?
@@ -114,12 +114,12 @@ class P2P:
         self.sending = True
         while not self.done:
             # during normal operation: acquire lock, send, unlock
-            with self.lock:
+            with self.outlock:
                 self.do_send()
             sleep(0.1)
         # during stopping phase: lock, send all that is left, stop. No more
         # items can be inserted during this period.
-        with self.lock:
+        with self.outlock:
             while self.outbound:
                 self.do_send()
         self.sending = False
@@ -173,7 +173,7 @@ class P2P:
                         message, idx = self.decoder.raw_decode(decoded)
                         remaining = decoded[idx:].lstrip()
                         buffer = remaining.encode()
-                        with self.lock:
+                        with self.inlock:
                             self.inbound.append((json.dumps(message).encode(), addr))
                     except json.JSONDecodeError:
                         break
@@ -215,12 +215,12 @@ class P2P:
         self.done = True
         self.receiver_thread.join()
         self.sender_thread.join()
-        with self.lock:
+        with self.inlock:
             # TODO: consider adopting separate locks for in/out. Buffer can
             # stick with in.
             self.inbound = []
+        with self.outlock:
             self.outbound = []
-            self.buffer = b""
 
     def resume(self) -> None:
         """
@@ -234,7 +234,8 @@ class P2P:
         self.tracker
         self.peers
         self.chain
-        self.lock
+        self.inlock
+        self.outlock
         self.decoder = json.JSONDecoder()
         """
         self.done = False
@@ -285,7 +286,7 @@ class P2P:
         """
         self.log.debug(f"Sending {pkt.__class__} to {dst}")
         pkt.set_src(self.addr)
-        with self.lock:
+        with self.outlock:
             self.outbound.append((pkt.as_bytes(), dst))
 
     def print_chain(self) -> None:
