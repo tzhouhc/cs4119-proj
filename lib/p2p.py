@@ -2,6 +2,8 @@ import json
 import socket
 from threading import Lock, Thread
 from time import sleep
+import argparse 
+import random
 
 from lib.blockchain import Block, BlockChain
 from lib.packet import (
@@ -45,6 +47,7 @@ class P2P:
         self.inlock = Lock()
         self.outlock = Lock()
         self.decoder = json.JSONDecoder()
+        self.malicious = False # flag for a malicious peer
 
     def set_tracker(self, tracker: Addr):
         """Set tracker to specified addr."""
@@ -297,7 +300,19 @@ class P2P:
     def send_packet(self, pkt: DataPacket, dst: Addr) -> None:
         """
         Shorthand for sending specifically DataPackets.
+        If peer is malicious and the packet is a BlockUpdatePacket, simulate 50% chance of sending
+        malformed json and 50% chance of dropping it entirely
         """
+        if self.malicious and isinstance(pkt, BlockUpdatePacket):
+            if random.random() < 0.5:
+                self.log.warning(f"Malicious peer sending malformed packet to {dst}")
+                with self.outlock:
+                    self.outbound.append((b"{malformed_json:", dst))
+                return
+            else:
+                self.log.warning(f"Malicious peer skipping BlockUpdatePacket to {dst}")
+                return
+	#normal behavior
         self.log.debug(f"Sending {pkt.__class__} to {dst}")
         pkt.set_src(self.addr)
         with self.outlock:
@@ -518,7 +533,21 @@ class Peer(P2P):
             content = self.provider.generate(self.history())
             new_block = Block(content.encode(), prev_hash)
             self.mining_block = new_block
-            # mine Block
+            # malicious behavior - tamper before mining
+            if self.malicious:
+                self.log.warning("Malicious peer creating corrupted block")
+                rand = random.random()
+                if rand < 1/3:
+                    self.log.warning("corrupting payload")
+                    new_block.payload = b"corrupted_payload"
+                elif rand < 2/3:
+                    self.log.warning("corrupting prev_hash")
+                    new_block.prev_hash = "bad_prev_hash"
+                else:
+                    self.log.warning("overwriting hash directly")
+                    new_block.hash = "0000malicious_hash"
+
+            #mine block
             new_block.mine()
             # check if sucessful (not interrupted)
             if not new_block.done:
@@ -674,8 +703,18 @@ TODO:
 
 
 if __name__ == "__main__":
-    server = P2P("127.0.0.1", 65432)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ip", type=str, default="127.0.0.1", help="IP address to bind")
+    parser.add_argument("--port", type=int, default=65432, help="Port to bind")
+    parser.add_argument("--malicious", action="store_true", help="Launch as a malicious peer")
+    args = parser.parse_args()
+
+    server = Peer(args.ip, args.port)
+    server.malicious = args.malicious
+
+    if server.malicious:
+        server.log.warning("Launching as a malicious peer!")
+
     server.start()
-    print(f"Server listening on {server.addr}")
-    while True:
-        pass
+    print(f"P2P server listening on {server.addr} (malicious={server.malicious})")
+    server.responder_thread()
