@@ -1,8 +1,9 @@
 import json
 import socket
-import argparse
 from threading import Lock, Thread
-from time import sleep, time
+from time import sleep
+import argparse
+import random
 
 from lib.blockchain import Block, BlockChain
 from lib.packet import (
@@ -30,6 +31,8 @@ class P2P:
     def __init__(self, ip: str, port: int) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # this allows the handler threads to possibly cancel and retry and
+        # thus exit their loop
         self.sock.settimeout(0.1)
         self.addr = (ip, port)
         self.tracker = None
@@ -37,23 +40,48 @@ class P2P:
         self.outbound: list[Packet] = []
         self.inbound: list[Packet] = []
         self.chain = None
-        self.done = False
-        self.terminated = False
-        self.lock = Lock()
-        self.buffer = b""
+        self.mine = True
+        self.send = True
+        self.receive = True
+        self.terminated = False  # lifecycle over
+        self.inlock = Lock()
+        self.outlock = Lock()
         self.decoder = json.JSONDecoder()
-        self.listening = False
-        self.sending = False
-        self.last_role_change_time = time()
-        self.malicious = False
+        self.malicious = False #flag for a malicious peer
 
     def set_tracker(self, tracker: Addr):
+        """Set tracker to specified addr."""
         self.tracker = tracker
 
     def get_peers(self) -> list[Addr]:
+        """Return current list of peers"""
         return list(self.peers)
 
+    def history(self) -> list[str]:
+        """
+        Retrieve all payloads from blockchain as a list of str.
+
+        Returns empty list if no blockchain exists.
+        """
+        if not self.chain:
+            return []
+        assert isinstance(self.chain, BlockChain)
+        return [b.payload.decode() for b in self.chain]
+
     def start(self) -> None:
+        """
+        Start the active components of the P2P class.
+
+        Notably, initializes both the handler threads and the main socket.
+        While the handler threads and supporting data structures can be stopped
+        or cleared, the port will remain until the final close() call.
+
+        Returns:
+            None
+        """
+        self.send = True
+        self.receive = True
+        self.mine = True
         self.sender_thread: Thread = Thread(target=self.sender_handler)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler)
         self.sock.bind(self.addr)
@@ -62,10 +90,18 @@ class P2P:
         self.receiver_thread.start()
 
     def do_send(self) -> None:
+        """
+        Send one item from outbound queue if any. Expects the operation to be
+        done while under lock due to writes to outbound queue.
+
+        Creates a temporary socket for the purpose.
+        """
         if self.outbound:
             payload, dest = self.outbound.pop(0)
             temp_sock = None
             if not dest:
+                # cannot send a dest-less packet; this is possible during
+                # testing if a tracker is not set but we are mining
                 return
             try:
                 temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -83,22 +119,33 @@ class P2P:
                     temp_sock.close()
 
     def sender_handler(self):
+        """
+        Checks the outbound queue and sends messages over TCP.
+
+        Will keep sending until the `done` flag is up, at which point it will
+        lock the input queue and start exiting. Further entries can be added
+        to the queue *after* but won't be sent until new sender thread starts.
+        """
         self.log.info("Sender thread starting.")
-        self.sending = True
-        while not self.done:
-            with self.lock:
+        while self.send:
+            # during normal operation: acquire lock, send, unlock
+            with self.outlock:
                 self.do_send()
             sleep(0.1)
-        with self.lock:
+        self.log.info("Sender pending closure.")
+        # during stopping phase: lock, send all that is left, stop. No more
+        # items can be inserted during this period.
+        with self.outlock:
             while self.outbound:
                 self.do_send()
-        self.sending = False
         self.log.info("Sender thread stopped.")
 
     def receiver_handler(self):
+        """
+        Accepts incoming connections and creates the threads to handle them.
+        """
         self.log.info("Receiver thread starting.")
-        self.listening = True
-        while not self.done:
+        while self.receive:
             try:
                 conn, addr = self.sock.accept()
                 Thread(
@@ -110,13 +157,25 @@ class P2P:
                 pass
             except Exception as e:
                 self.log.error(f"Error accepting the connection: {e}")
-        self.listening = False
         self.log.info("Receiver thread stopped.")
 
     def handle_connection(self, conn: socket.socket, addr: Addr):
+        """
+        Handles the incoming socket connection and buffers the incoming data
+        until complete JSON received
+
+        Parameters:
+            conn : socket.socket
+                The accepted socket connection from a peer.
+            addr : Addr
+                The address tuple (IP, port) of the connected peer.
+
+        Returns:
+            None
+        """
         try:
             buffer = b""
-            while not self.done:
+            while self.receive:
                 data = conn.recv(4096)
                 if not data:
                     break
@@ -127,7 +186,7 @@ class P2P:
                         message, idx = self.decoder.raw_decode(decoded)
                         remaining = decoded[idx:].lstrip()
                         buffer = remaining.encode()
-                        with self.lock:
+                        with self.inlock:
                             self.inbound.append((json.dumps(message).encode(), addr))
                     except json.JSONDecodeError:
                         break
@@ -141,31 +200,90 @@ class P2P:
             conn.close()
 
     def pack(self, data: dict) -> bytes:
+        """
+        Encodes a Python dict into a JSON formatted byte string
+
+        Parameters:
+            data : dict
+                The dictionary to encode
+
+        Returns:
+            bytes
+                The encoded JSON byte string
+
+        """
         return json.dumps(data).encode()
 
     def stop(self) -> None:
-        self.done = True
-        self.receiver_thread.join()
+        """
+        Terminate current activities. Maintain current port.
+
+        This will let threads finish their last loop and gracefully join the
+        incoming/outgoing threads. This does *not* however check that the
+        queues are empty.
+
+        Returns:
+            None
+        """
+        self.mine = False
+        self.send = False
         self.sender_thread.join()
-        with self.lock:
+        self.receive = False
+        self.receiver_thread.join()
+        with self.inlock:
+            # TODO: consider adopting separate locks for in/out. Buffer can
+            # stick with in.
             self.inbound = []
+        with self.outlock:
             self.outbound = []
-            self.buffer = b""
 
     def resume(self) -> None:
-        self.done = False
-        self.last_role_change_time = time()
+        """
+        Resume activity.
+
+        Will create new threads for incoming/outgoing traffic.
+
+        During the restart process, it will maintain the following:
+        self.sock
+        self.addr
+        self.tracker
+        self.peers
+        self.chain
+        self.inlock
+        self.outlock
+        self.decoder = json.JSONDecoder()
+        """
+        self.mine = True
+        self.send = True
+        self.receive = True
         self.sender_thread: Thread = Thread(target=self.sender_handler)
         self.receiver_thread: Thread = Thread(target=self.receiver_handler)
         self.sender_thread.start()
         self.receiver_thread.start()
 
     def close(self) -> None:
+        """
+        Close the connection and terminate current activities.
+
+        This will let threads finish their last loop, join the threads, then
+        actually close the port. Once closed, it might be troublesome to try
+        to restart on the same ports, so only call this at the end of a
+        session.
+
+        Returns:
+            None
+        """
         self.stop()
         self.terminated = True
         self.sock.close()
 
     def responder_thread(self) -> None:
+        """
+        Responder thread, which handles repeatedly receiving packets and
+        handling them based on type.
+
+        This is a *blocking* call.
+        """
         self.log.info("Responder thread starting.")
         while not self.terminated:
             if self.inbound:
@@ -180,16 +298,30 @@ class P2P:
         raise NotImplementedError("Should not use P2P respond method.")
 
     def send_packet(self, pkt: DataPacket, dst: Addr) -> None:
-        #don't send if node is malicious 
+        """
+        Shorthand for sending specifically DataPackets.
+        If peer is malicious and the packet is a BlockUpdatePacker:
+        - Simulates 50% chance of sending malformed json, and 50% chance of dropping it entirely
+        """
         if self.malicious and isinstance(pkt, BlockUpdatePacket):
-            self.log.warning(f"Malicious node skipped sending BlockUpdatePacket to {dst}")
-            return 
+            if random.random() < 0.5:
+                self.log.warning(f"Malicious peer sending malformed packet to {dst}")
+                with self.outlock:
+                    self.outbound.append((b"{malformed_json:", dst))
+                return
+            else:
+                self.log.warning(f"Malicious peer skipping BlockUpdatePacket to {dst}")
+                return
+        #normal behavior
         self.log.debug(f"Sending {pkt.__class__} to {dst}")
         pkt.set_src(self.addr)
-        with self.lock:
+        with self.outlock:
             self.outbound.append((pkt.as_bytes(), dst))
 
     def print_chain(self) -> None:
+        """
+        Pretty print current chain.
+        """
         if not self.chain:
             print("No blockchain established.")
             return
@@ -272,22 +404,22 @@ class Tracker(P2P):
                 self.print_chain()
                 self.set_tracker(true_src)
                 self.become_peer()
+
+        # *WHY* would a tracker receive an ann? Presumably someone else got
+        # mistakenly elected.
         elif isinstance(pkt, AnnouncementPacket):
-            #only accept announc from curr tracker
-            if true_src != self.tracker:
-                self.log.warning(f"Ignoring announcement from non-tracker: {true_src}")
-                return
             # get new chain
             new_chain = BlockChain.from_list(pkt["chain"])
             # check if valid
             if not new_chain.is_valid():  # invalid chain
                 return
-            else:
-                # update
+            # update
+            if not self.chain or new_chain > self.chain:
                 self.chain = new_chain
-                self.set_tracker(pkt.data["tracker"])
-                if self.tracker != self.addr:
-                    self.become_peer()
+            self.set_tracker(pkt.data["tracker"])
+            # cooperative yield
+            if self.tracker != self.addr:
+                self.become_peer()
 
 
 class Peer(P2P):
@@ -298,11 +430,10 @@ class Peer(P2P):
     On DROP, notify tracker.
     """
 
-    def __init__(self, ip: str, port: int, malicious=False):
-        super().__init__(ip, port)
+    def __init__(self, ip: str, port: int):
+        P2P.__init__(self, ip, port)
         self.block = None
         self.provider = MockContentProvider()
-        self.malicious = malicious
 
     def set_provider(self, provider: ContentProvider) -> None:
         """Replace default mock content provider with specified."""
@@ -378,7 +509,8 @@ class Peer(P2P):
                 if self.block:
                     self.block.set_stop_mining(True)
                 # update
-                self.chain = new_chain
+                if not self.chain or new_chain > self.chain:
+                    self.chain = new_chain
                 self.set_tracker(pkt.data["tracker"])
                 if self.tracker == self.addr:
                     self.become_tracker()
@@ -388,7 +520,7 @@ class Peer(P2P):
         Miner thread, mines block and once found broadcasts to peers.
         """
         self.log.info("Miner thread starting.")
-        while not self.done:
+        while self.mine:
             # check for chain
             if not self.chain:
                 self.chain = BlockChain()
@@ -398,13 +530,15 @@ class Peer(P2P):
                 prev_hash = tail.hash
             else:
                 prev_hash = ""
-            content = self.provider.generate({})  # TODO: history
-            if self.malicious:
-                content = "!Bad Block!"
+            content = self.provider.generate(self.history())
             new_block = Block(content.encode(), prev_hash)
             self.mining_block = new_block
             # mine Block
             new_block.mine()
+            #malicious behavior - corrupt the hash after mining
+            if self.malicious:
+                self.log.warning("Malicious peer corrupting block hash")
+                new_block.hash = "0000corruptedhash" #bad hash
             # check if sucessful (not interrupted)
             if not new_block.done:
                 self.mining_block = None
@@ -565,7 +699,7 @@ if __name__ == "__main__":
     parser.add_argument("--malicious", action="store_true", help="Launch as a malicious peer")
     args = parser.parse_args()
 
-    server = P2P(args.ip, args.port)
+    server = Peer(args.ip, args.port)
     server.malicious = args.malicious
 
     if server.malicious:
