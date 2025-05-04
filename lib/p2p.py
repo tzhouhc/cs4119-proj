@@ -2,7 +2,6 @@ import json
 import socket
 from threading import Lock, Thread
 from time import sleep
-import argparse 
 import random
 
 from lib.blockchain import Block, BlockChain
@@ -533,26 +532,23 @@ class Peer(P2P):
             content = self.provider.generate(self.history())
             new_block = Block(content.encode(), prev_hash)
             self.mining_block = new_block
-            # malicious behavior - tamper before mining
-            if self.malicious:
-                self.log.warning("Malicious peer creating corrupted block")
-                rand = random.random()
-                if rand < 1/3:
-                    self.log.warning("corrupting payload")
-                    new_block.payload = b"corrupted_payload"
-                elif rand < 2/3:
-                    self.log.warning("corrupting prev_hash")
-                    new_block.prev_hash = "bad_prev_hash"
-                else:
-                    self.log.warning("overwriting hash directly")
-                    new_block.hash = "0000malicious_hash"
-
-            #mine block
+            # mine block 
             new_block.mine()
+
             # check if sucessful (not interrupted)
             if not new_block.done:
                 self.mining_block = None
                 continue
+            # malicious behavior 
+            if self.malicious:
+                self.log.warning("Malicious peer replacing block after mining")
+                tampered_payload = b"corrupted_payload"
+                tampered_prev_hash = "bad_prev_hash"
+                tampered_hash = "0000malicious_hash"
+                forged_block = Block(tampered_payload, tampered_prev_hash)
+                forged_block.hash = tampered_hash
+                forged_block.done = True  # Mark as "mined"
+                new_block = forged_block  # Replace legit block
             # append to chain
             try:
                 self.chain.append(new_block)
@@ -703,18 +699,4 @@ TODO:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--ip", type=str, default="127.0.0.1", help="IP address to bind")
-    parser.add_argument("--port", type=int, default=65432, help="Port to bind")
-    parser.add_argument("--malicious", action="store_true", help="Launch as a malicious peer")
-    args = parser.parse_args()
-
-    server = Peer(args.ip, args.port)
-    server.malicious = args.malicious
-
-    if server.malicious:
-        server.log.warning("Launching as a malicious peer!")
-
-    server.start()
-    print(f"P2P server listening on {server.addr} (malicious={server.malicious})")
-    server.responder_thread()
+    ...

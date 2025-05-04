@@ -21,6 +21,9 @@ def arg_parser() -> ArgumentParser:
     parser.add_argument(
         "--llm", action="store_true", help="Use actual LLM content provider."
     )
+    parser.add_argument(
+        "--malicious", action="store_true", help="Launch node as malicious"
+    )
     return parser
 
 
@@ -31,6 +34,9 @@ def main():
     agent = TrackerPeer(args.ip, args.port)
     if args.llm:
         agent.set_provider(LLMContentProvider())
+    if args.malicious:
+        agent.malicious = True
+        print("Launching as a malicious node.")
     if args.ip == args.tip and args.port == args.tport:
         print(f"Creating tracker at {args.ip}:{args.port}.")
         agent.set_state(TRACKER)
