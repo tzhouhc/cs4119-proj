@@ -299,19 +299,7 @@ class P2P:
     def send_packet(self, pkt: DataPacket, dst: Addr) -> None:
         """
         Shorthand for sending specifically DataPackets.
-        If peer is malicious and the packet is a BlockUpdatePacket, simulate 50% chance of sending
-        malformed json and 50% chance of dropping it entirely
         """
-        if self.malicious and isinstance(pkt, BlockUpdatePacket):
-            if random.random() < 0.5:
-                self.log.warning(f"Malicious peer sending malformed packet to {dst}")
-                with self.outlock:
-                    self.outbound.append((b"{malformed_json:", dst))
-                return
-            else:
-                self.log.warning(f"Malicious peer skipping BlockUpdatePacket to {dst}")
-                return
-	#normal behavior
         self.log.debug(f"Sending {pkt.__class__} to {dst}")
         pkt.set_src(self.addr)
         with self.outlock:
@@ -539,17 +527,7 @@ class Peer(P2P):
             if not new_block.done:
                 self.mining_block = None
                 continue
-            # malicious behavior 
-            if self.malicious:
-                self.log.warning("Malicious peer replacing block after mining")
-                tampered_payload = b"corrupted_payload"
-                tampered_prev_hash = "bad_prev_hash"
-                tampered_hash = "0000malicious_hash"
-                forged_block = Block(tampered_payload, tampered_prev_hash)
-                forged_block.hash = tampered_hash
-                forged_block.done = True  # Mark as "mined"
-                new_block = forged_block  # Replace legit block
-            # append to chain
+            # append real block to chain
             try:
                 self.chain.append(new_block)
             except ValueError:
@@ -557,6 +535,10 @@ class Peer(P2P):
                 continue
             # broadcast Block
             pkt = BlockUpdatePacket(self.chain)
+            # malicious behavior: corrupt packet after mining
+            if self.malicious: 
+                self.log.warning("Malicious peer corrupting packet before sending")
+                pkt.data["chain"] = {"malformed": "not a real chain"}
             self.send_packet(pkt, self.tracker)
             # reset
             self.block = None
