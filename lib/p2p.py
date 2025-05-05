@@ -463,8 +463,9 @@ class Peer(P2P):
         # check for valid packet
         try:
             pkt = DataPacket.from_dict(msg)
-        except ValueError as e:
+        except Exception as e:
             self.log.warning(f"Failed to interpret packet: {e}")
+            return
         # valid packet, respond
         assert pkt is not None
         sip, sport = tuple(pkt.src)
