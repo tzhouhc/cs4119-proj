@@ -43,6 +43,7 @@ class P2P:
         self.send = True
         self.receive = True
         self.terminated = False  # lifecycle over
+        self.should_become_tracker = False
         self.inlock = Lock()
         self.outlock = Lock()
         self.decoder = json.JSONDecoder()
@@ -112,12 +113,8 @@ class P2P:
             except ConnectionRefusedError:
                 self.log.info(f"{dest} is unavailable -- assume dropped.")
                 if dest == self.tracker:
-                    pass
-                    # ideally we do something like set a flag and then in the
-                    # main loop upon seeing the flag this *peer* volunteers to
-                    # become a tracker. As is, there's not a lot of conflict
-                    # resolution logic for handling multiple volunteered
-                    # trackers.
+                    self.log.info(f"{dest} is tracker; assuming tracker role.")
+                    self.should_become_tracker = True
                 else:
                     self.peers.remove(dest)
             except TimeoutError:
@@ -287,23 +284,6 @@ class P2P:
         self.terminated = True
         self.sock.close()
 
-    def responder_thread(self) -> None:
-        """
-        Responder thread, which handles repeatedly receiving packets and
-        handling them based on type.
-
-        This is a *blocking* call.
-        """
-        self.log.info("Responder thread starting.")
-        while not self.terminated:
-            if self.inbound:
-                msg, src = self.inbound.pop(0)
-                data = json.loads(msg.decode())
-                self.respond(data, src)
-            else:
-                sleep(0.1)
-        self.log.info("Responder thread stopped.")
-
     def respond(self, msg: dict, src: Addr) -> None:
         raise NotImplementedError("Should not use P2P respond method.")
 
@@ -315,6 +295,13 @@ class P2P:
         pkt.set_src(self.addr)
         with self.outlock:
             self.outbound.append((pkt.as_bytes(), dst))
+
+    def announce(self, pkt: DataPacket) -> None:
+        """
+        Send packet to all peers.
+        """
+        for peer in self.peers:
+            self.send_packet(pkt, peer)
 
     def print_chain(self) -> None:
         """
@@ -353,15 +340,25 @@ class Tracker(P2P):
     def resume(self):
         P2P.resume(self)
 
-    def announce(self, pkt: DataPacket) -> None:
-        """
-        Send packet to all peers.
-        """
-        for peer in self.peers:
-            self.send_packet(pkt, peer)
-
     def become_peer(self) -> None:
         raise NotImplementedError("Tracker does not have become_peer implemented.")
+
+    def responder_thread(self) -> None:
+        """
+        Responder thread, which handles repeatedly receiving packets and
+        handling them based on type.
+
+        This is a *blocking* call.
+        """
+        self.log.info("Responder thread starting.")
+        while not self.terminated:
+            if self.inbound:
+                msg, src = self.inbound.pop(0)
+                data = json.loads(msg.decode())
+                self.respond(data, src)
+            else:
+                sleep(0.1)
+        self.log.info("Responder thread stopped.")
 
     def respond(self, msg: dict, src: Addr) -> None:
         """
@@ -463,6 +460,35 @@ class Peer(P2P):
 
     def become_tracker(self) -> None:
         raise NotImplementedError("Peer does not have become_tracker implemented.")
+
+    def responder_thread(self) -> None:
+        """
+        Responder thread, which handles repeatedly receiving packets and
+        handling them based on type. Specially, as PEER's responder, if peer
+        realized that it has lost access to a tracker, it will volunteer
+        itself.
+
+        This is a *blocking* call.
+        """
+        self.log.info("Responder thread starting.")
+        while not self.terminated:
+            if self.should_become_tracker:
+                self.log.info("Trying to volunteer as tracker")
+                self.should_become_tracker = False
+                resp = AnnouncementPacket(self.chain, self.addr)
+                self.announce(resp)
+                # this function is unimplemented in the Tracker class, but will
+                # be available to its subclass, TrackerPeer.
+                self.set_tracker(self.addr)
+                self.become_tracker()
+                continue
+            if self.inbound:
+                msg, src = self.inbound.pop(0)
+                data = json.loads(msg.decode())
+                self.respond(data, src)
+            else:
+                sleep(0.1)
+        self.log.info("Responder thread stopped.")
 
     def respond(self, msg: dict, src: Addr) -> None:
         """
@@ -680,7 +706,10 @@ class TrackerPeer(Tracker, Peer):
         threads cannot join on themselves.
         """
         self.log.info("TrackerPeer main loop running.")
-        P2P.responder_thread(self)
+        if self._state == PEER:
+            return Peer.responder_thread(self)
+        else:
+            return Tracker.responder_thread(self)
 
 
 """
