@@ -109,6 +109,17 @@ class P2P:
                 self.log.debug(f"Sent packet to {dest}")
             except ConnectionAbortedError:
                 self.log.debug("Connected aborted presumably due to close.")
+            except ConnectionRefusedError:
+                self.log.info(f"{dest} is unavailable -- assume dropped.")
+                if dest == self.tracker:
+                    pass
+                    # ideally we do something like set a flag and then in the
+                    # main loop upon seeing the flag this *peer* volunteers to
+                    # become a tracker. As is, there's not a lot of conflict
+                    # resolution logic for handling multiple volunteered
+                    # trackers.
+                else:
+                    self.peers.remove(dest)
             except TimeoutError:
                 pass
             except Exception as e:
