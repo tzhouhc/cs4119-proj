@@ -1,8 +1,8 @@
 import json
+import random
 import socket
 from threading import Lock, Thread
 from time import sleep
-import random
 
 from lib.blockchain import Block, BlockChain
 from lib.packet import (
@@ -46,7 +46,7 @@ class P2P:
         self.inlock = Lock()
         self.outlock = Lock()
         self.decoder = json.JSONDecoder()
-        self.malicious = False # flag for a malicious peer
+        self.malicious = False  # flag for a malicious peer
 
     def set_tracker(self, tracker: Addr):
         """Set tracker to specified addr."""
@@ -363,8 +363,9 @@ class Tracker(P2P):
         pkt = None
         try:
             pkt = DataPacket.from_dict(msg)
-        except ValueError as e:
+        except Exception as e:
             self.log.warning(f"Failed to interpret packet: {e}")
+            return
         # valid packet, add peer to list
         assert pkt is not None
         sip, sport = tuple(pkt.src)
@@ -520,7 +521,7 @@ class Peer(P2P):
             content = self.provider.generate(self.history())
             new_block = Block(content.encode(), prev_hash)
             self.mining_block = new_block
-            # mine block 
+            # mine block
             new_block.mine()
 
             # check if sucessful (not interrupted)
@@ -536,7 +537,7 @@ class Peer(P2P):
             # broadcast Block
             pkt = BlockUpdatePacket(self.chain)
             # malicious behavior: corrupt packet after mining
-            if self.malicious: 
+            if self.malicious:
                 self.log.warning("Malicious peer corrupting packet before sending")
                 pkt.data["chain"] = {"malformed": "not a real chain"}
             self.send_packet(pkt, self.tracker)
