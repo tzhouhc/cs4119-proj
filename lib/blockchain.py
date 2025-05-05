@@ -12,6 +12,12 @@ log = setup_logger(1, name=__name__)
 
 
 def expected_hash_prefix():
+    """
+    Block hashes should start with this.
+
+    Returns:
+        string of 0s with DIFFICULTY as length.
+    """
     return "0" * DIFFICULTY
 
 
@@ -42,11 +48,26 @@ class Block:
             raise AttributeError(f"Can't modify read-only attribute {key}")
 
     def __str__(self) -> str:
+        """
+        To readable text form.
+
+        Returns:
+            string rep of block.
+        """
         content = self.payload if len(self.payload) <= 20 else self.payload[:8]
         hash = self.hash[:8]
         return f"Block[{hash}, {content}]"
 
     def __eq__(self, other: Any) -> bool:
+        """
+        Whether block is equivalent to other object.
+
+        Args:
+            other: any object
+
+        Returns:
+            True iff other is also a Block and has equal fields.
+        """
         if not isinstance(other, Block):
             return False
         return all(
@@ -253,10 +274,26 @@ class BlockChain:
         return "\n".join([b.pretty() for b in self._chain])
 
     def as_list(self) -> list[dict]:
+        """
+        Converts BlockChain to format that can be json.dump()ed, which takes
+        the form of a list of dictionaries.
+
+        Returns:
+            Serializable list of primitive data dict.
+        """
         return [b.as_dict() for b in self]
 
     @classmethod
     def from_list(cls, lst: list[dict]):
+        """
+        Reconstruct a BlockChain from a serializable list.
+
+        Args:
+            lst: previous output of BlockChain.as_list()
+
+        Returns:
+            BlockChain based on data from the list.
+        """
         c = cls()
         c._chain = [Block.from_dict(d) for d in lst]
         return c

@@ -2,6 +2,12 @@
 
 Team 34
 
+## Members
+
+Active Members: dpn2111, em3772, tz2635
+
+No show after first team meeting: nn2622
+
 ## Dev
 
 ### Pre-commit

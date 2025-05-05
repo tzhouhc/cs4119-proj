@@ -5,6 +5,13 @@
 We have unit tests to ensure base library classes and functions work correctly
 and (to a lesser extent) prevent regressions.
 
+The unit tests ensure that:
+- Blocks and Blockchains behave as expected -- mining process, hash
+  requirements, immutability after mining, validation
+- P2P code behaves mostly as expected, though due to the racey nature of the
+  p2p agents we haven't added too thorough of a set of tests.
+- Datapacket tests to ensure their data, parsing and serialization.
+
 ## Dev Testing
 
 To run some simple tests, run `main.py` in a few terminals. It expects, in
@@ -32,7 +39,10 @@ What we have:
   content.
 
 What we do not have:
-- Handling dropped peers
+- Handling dropped peers. This can be added with an explicit drop packet from
+  peers, but that still does not prevent force kills. Alternative nodes can mark
+  nodes as inactive upon failure to connect, though that requires extensive
+  discussion to get right, which we don't really have much time to do.
 
 Notes:
 - Sometimes a node can get two blocks sent before being told to stop mining --

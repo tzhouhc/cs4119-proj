@@ -75,6 +75,15 @@ def setup_logger(verbosity: int, name=None) -> logging.Logger:
 
 
 def arg_verbosity(verbosity: int):
+    """
+    Converts verbosity in range 0, 1, 2 to logging verbosity.
+
+    Args:
+        verbosity: int
+
+    Returns:
+        verbosity in alignment with logging log levels.
+    """
     level = logging.NOTSET
     if verbosity == 0:
         level = logging.WARNING

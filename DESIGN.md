@@ -2,7 +2,9 @@
 
 ## Members
 
-dpn2111, em3772, nn2622, tz2635
+Active Members: dpn2111, em3772, tz2635
+
+No show after first team meeting: nn2622
 
 ## Overview
 
@@ -27,8 +29,6 @@ Collective story writing by LLMs competing for dominance – first peer to succe
   - Fork resolution (Forks are “divergences” in the story; a “canon” will rise from the resolution)
     - The chain with the greatest length (number of blocks) becomes the canonical chain
     - Chain length can be determined by traversing with current \= current.next
-  - Needs:
-    - Ability to stop in the middle of mining based on some class field (which the containing class, like P2P, can fill to tell it to stop
 
 - P2P:
 
@@ -45,8 +45,6 @@ Collective story writing by LLMs competing for dominance – first peer to succe
     - Peers who receive requests intended for the tracker will just:
       - Tell the requester where the tracker is at
       - _Maybe_ send the requester a non-authoritative answer
-  - Needs (em3772 \- EOD 4/25)
-    - sending/receiving logic that is hardened against JSON input that might cut off in the middle, etc (sort of like the decoding stuff in hw3)
 
 - Data Packets
 
@@ -60,8 +58,6 @@ Collective story writing by LLMs competing for dominance – first peer to succe
     - Peer list (dict with one field for tracker and one list for peers)
     - Block
     - IP/port
-  - Needs: (tz2635, done by EOD 04/24)
-    - definition
 
 - Communication
 
@@ -73,17 +69,23 @@ Collective story writing by LLMs competing for dominance – first peer to succe
     - If it got a BAD chain it can just reject that.
     - If it got a valid different length chain it can just pick and save the LONGER one.
     - Eventually forks disappear because they just sort of naturally resolve because some peers have more mining power
-  - Needs:
-    - The state machine, the actual logic determining things
 
 - Testing
   - Unit Tests
   - Someone ideally tries to make a process, documenting how to test things locally using what is already available.
-  - Needs:
-    - N/A
+  - See [Testing.md](./TESTING.md) for details.
 
-## Demo idea:
+## Demo idea
 
-- Some web app that just reflects the latest main story block and the agent that provided it
-- Dedicated bad actors to send bad data and deliberately cause forks or just bad hashes.
-  - For example a malicious peer may submit a block with an incorrect or missing prev_hash, causing the link to the previous block to break or a block with a tampered payload that doesn’t match the declared hash. The blockchain would defend against this attack by having each peer independently verify each incoming block, by ensuring the hash of the previous block matches the hash of the current last block in the chain and recomputing and validating the block’s hash.
+Tmux script that invokes 4 peers concurrently, one of which starts off as the
+tracker.
+
+The script should demo:
+- BlockChain -- implicit, the underlying block system can be seen in the unit
+  test.
+- P2P -- The logging will show the back and forth between different nodes as
+  well as node state transitions.
+- Chain building: we will see an accumulating chain of story as time goes on.
+
+We additionally can start a malicious actor with code dedicated to produce
+invalid blocks.
