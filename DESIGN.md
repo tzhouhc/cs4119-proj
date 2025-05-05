@@ -70,6 +70,13 @@ Collective story writing by LLMs competing for dominance – first peer to succe
     - If it got a valid different length chain it can just pick and save the LONGER one.
     - Eventually forks disappear because they just sort of naturally resolve because some peers have more mining power
 
+- Dropped peer/tracker
+
+  - Dropped peers are detected by connection refused errors and removed from
+    lists.
+  - Dropped trackers are replaced by the first peer that detected them
+    missing.
+
 - Testing
   - Unit Tests
   - Someone ideally tries to make a process, documenting how to test things locally using what is already available.
@@ -81,6 +88,7 @@ Tmux script that invokes 4 peers concurrently, one of which starts off as the
 tracker.
 
 The script should demo:
+
 - BlockChain -- implicit, the underlying block system can be seen in the unit
   test.
 - P2P -- The logging will show the back and forth between different nodes as

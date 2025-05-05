@@ -37,12 +37,7 @@ What we have:
 - 3 peer and 1 tracker have a fun event. That said, it's a bit too costly to
   _test_ with actual LLM backing too, so we're usually just testing with empty
   content.
-
-What we do not have:
-- Handling dropped peers. This can be added with an explicit drop packet from
-  peers, but that still does not prevent force kills. Alternative nodes can mark
-  nodes as inactive upon failure to connect, though that requires extensive
-  discussion to get right, which we don't really have much time to do.
+- 3 peer and 1 tracker and 1 malicious. Malicious packets correctly blocked.
 
 Notes:
 - Sometimes a node can get two blocks sent before being told to stop mining --
